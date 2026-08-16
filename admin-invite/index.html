@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TreeTime | פתיחת סביבת עבודה חדשה</title>
+<link rel="icon" type="image/png" href="/api/branding/logo" id="faviconLink">
+<script>document.getElementById('faviconLink').href = '/api/branding/logo?v=' + Date.now();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10241C; --ink-soft:#1D3327; --bg:#FAF9F4; --panel:#FFFFFF; --border:#E4E1D6;
+    --muted:#6B7568; --green:#2F6F4E; --green-soft:#E7F1EA; --green-bright:#3F9863;
+    --red:#C0392B; --red-soft:#FBE7E4; --gold:#B08D3E;
+    --shadow: 0 1px 2px rgba(16,36,28,0.04), 0 8px 24px rgba(16,36,28,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{ font-family:'Assistant',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh;
+        display:flex; align-items:center; justify-content:center; padding:24px; }
+  h1,h2,h3{ font-family:'Rubik',sans-serif; margin:0; }
+  .mono{ font-family:'Roboto Mono',monospace; }
+  .card{ width:100%; max-width:520px; background:var(--panel); border:1px solid var(--border);
+         border-radius:18px; padding:30px; box-shadow:var(--shadow); }
+  .card h1{ font-size:21px; text-align:center; }
+  .card .sub{ text-align:center; font-size:13px; color:var(--muted); margin-top:4px; margin-bottom:22px; }
+  .badge-trial{ display:block; width:fit-content; margin:0 auto 18px; background:var(--green-soft); color:var(--green);
+                font-size:12px; font-weight:700; padding:5px 12px; border-radius:20px; }
+  h4{ font-size:13px; color:var(--muted); margin:20px 0 10px; padding-top:14px; border-top:1px solid var(--border); }
+  label{ display:block; font-size:13px; font-weight:600; margin:10px 0 5px; }
+  input, select{
+    width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:9px;
+    font-family:'Assistant'; font-size:14px; background:#FCFBF7; color:var(--ink);
+  }
+  input:focus, select:focus{ outline:none; border-color:var(--green-bright); }
+  .field-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .slug-row{ display:flex; align-items:center; gap:0; }
+  .slug-prefix{ font-size:12.5px; color:var(--muted); background:#F1EFE5; border:1px solid var(--border);
+                border-left:none; border-radius:0 9px 9px 0; padding:10px 10px; white-space:nowrap; }
+  .slug-row input{ border-radius:9px 0 0 9px; }
+  .hint{ font-size:11.5px; color:var(--muted); margin-top:4px; }
+  .hint.ok{ color:var(--green); }
+  .hint.bad{ color:var(--red); }
+  button{ border:none; border-radius:10px; padding:12px 16px; font-family:'Rubik'; font-weight:700;
+          font-size:14.5px; cursor:pointer; transition:.15s; width:100%; }
+  .btn-primary{ background:var(--green); color:#fff; margin-top:20px; }
+  .btn-primary:hover{ background:var(--green-bright); }
+  .btn-primary:disabled{ opacity:.6; cursor:not-allowed; }
+  .error{ color:var(--red); font-size:13px; margin-top:12px; text-align:center; }
+  .state-msg{ text-align:center; font-size:14px; color:var(--muted); padding:20px 0; }
+</style>
+</head>
+<body>
+
+<div class="card" id="card">
+  <div class="state-msg" id="loadingMsg">בודק את הלינק...</div>
+</div>
+
+<script>
+const API = '/api';
+const $ = (id) => document.getElementById(id);
+const token = location.pathname.match(/\/admin-invite\/([a-zA-Z0-9]+)/)?.[1] || '';
+
+function slugify(str){
+  return str.toLowerCase().trim()
+    .replace(/[^a-z0-9\s-]/g,'')
+    .replace(/\s+/g,'-')
+    .replace(/-+/g,'-')
+    .slice(0,20);
+}
+
+function renderInvalid(){
+  $('card').innerHTML = `
+    <h1>הלינק אינו תקף</h1>
+    <div class="sub">הלינק הזה כבר נוצל, או שאינו קיים. פנה לגורם ששלח לך אותו לקבלת לינק חדש.</div>
+  `;
+}
+
+function renderForm(){
+  $('card').innerHTML = `
+    <span class="badge-trial">🌱 סביבת ניסיון — פעילה מיידית</span>
+    <h1>פתיחת סביבת עבודה חדשה</h1>
+    <div class="sub">בית התוכנה שלך ב-TreeTime — נפתח מיידית, ללא צורך באישור</div>
+
+    <form id="signupForm">
+      <h4>פרטי העסק</h4>
+      <label>שם העסק</label><input type="text" id="companyName" required>
+      <div class="field-row">
+        <div><label>ח.פ / ע.מ</label><input type="text" id="businessId"></div>
+        <div><label>טלפון ליצירת קשר</label><input type="text" id="contactPhone"></div>
+      </div>
+      <label>כתובת</label><input type="text" id="address">
+      <label>אימייל ליצירת קשר</label><input type="email" id="contactEmail">
+
+      <label>שם סביבת העבודה (באנגלית)</label>
+      <div class="slug-row">
+        <input type="text" id="slug" placeholder="acme-design" dir="ltr" style="text-align:left;" required>
+        <span class="slug-prefix mono">/c/</span>
+      </div>
+      <div class="hint" id="slugHint">אותיות אנגליות קטנות, מספרים ומקפים בלבד, 3-20 תווים — זה יהיה כתובת ה-URL של הסביבה שלך</div>
+
+      <h4>חשבון האדמין שלך</h4>
+      <label>שם מלא</label><input type="text" id="adminName" required>
+      <label>אימייל</label><input type="email" id="adminEmail" required>
+      <label>סיסמה (לפחות 8 תווים)</label><input type="password" id="adminPassword" required minlength="8">
+
+      <button type="submit" class="btn-primary" id="submitBtn">פתח סביבת עבודה</button>
+      <div class="error" id="formError" style="display:none;"></div>
+    </form>
+  `;
+
+  let slugTouched = false;
+  $('slug').addEventListener('input', () => { slugTouched = true; checkSlug(); });
+  $('companyName').addEventListener('input', (e) => {
+    if(!slugTouched) $('slug').value = slugify(e.target.value);
+    checkSlug();
+  });
+
+  let slugCheckTimer = null;
+  function checkSlug(){
+    const val = $('slug').value.trim().toLowerCase();
+    $('slug').value = val;
+    clearTimeout(slugCheckTimer);
+    const hint = $('slugHint');
+    if(!val){
+      hint.textContent = 'אותיות אנגליות קטנות, מספרים ומקפים בלבד, 3-20 תווים — זה יהיה כתובת ה-URL של הסביבה שלך';
+      hint.className = 'hint';
+      return;
+    }
+    slugCheckTimer = setTimeout(async () => {
+      try{
+        const res = await fetch(`${API}/admin-signup-link/${token}/check-slug?slug=${encodeURIComponent(val)}`);
+        const data = await res.json();
+        if(data.available){
+          hint.textContent = `${val} פנוי ✓`;
+          hint.className = 'hint ok';
+        }else if(data.reason === 'invalid_format'){
+          hint.textContent = 'פורמט לא תקין — אותיות אנגליות קטנות, מספרים ומקפים, 3-20 תווים, מתחיל באות';
+          hint.className = 'hint bad';
+        }else{
+          hint.textContent = `${val} כבר תפוס — נסה שם אחר`;
+          hint.className = 'hint bad';
+        }
+      }catch(e){ /* ignore transient check errors, server validates on submit anyway */ }
+    }, 350);
+  }
+
+  $('signupForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = $('formError');
+    errEl.style.display = 'none';
+    const btn = $('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'פותח סביבת עבודה...';
+
+    try{
+      const res = await fetch(`${API}/admin-signup-link/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_name: $('companyName').value.trim(),
+          slug: $('slug').value.trim(),
+          business_id: $('businessId').value.trim() || undefined,
+          address: $('address').value.trim() || undefined,
+          contact_phone: $('contactPhone').value.trim() || undefined,
+          contact_email: $('contactEmail').value.trim() || undefined,
+          admin_full_name: $('adminName').value.trim(),
+          admin_email: $('adminEmail').value.trim(),
+          admin_password: $('adminPassword').value,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if(!res.ok) throw new Error(data?.message || data?.error || `שגיאה (${res.status})`);
+
+      localStorage.setItem('tt_dashboard_token', data.token);
+      location.href = `/c/${data.company.slug}/`;
+    }catch(err){
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'פתח סביבת עבודה';
+    }
+  });
+}
+
+(async () => {
+  if(!token){ renderInvalid(); return; }
+  try{
+    const res = await fetch(`${API}/admin-signup-link/${token}`);
+    if(!res.ok){ renderInvalid(); return; }
+    renderForm();
+  }catch(e){ renderInvalid(); }
+})();
+</script>
+</body>
+</html>
