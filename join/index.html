@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>הצטרפות כעובד</title>
+<link rel="icon" type="image/png" href="/api/branding/logo" id="faviconLink">
+<script>document.getElementById('faviconLink').href = '/api/branding/logo?v=' + Date.now();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10241C; --bg:#FAF9F4; --panel:#FFFFFF; --border:#E4E1D6;
+    --muted:#6B7568; --green:#2F6F4E; --green-soft:#E7F1EA; --green-bright:#3F9863;
+    --red:#C0392B; --shadow: 0 1px 2px rgba(16,36,28,0.04), 0 8px 24px rgba(16,36,28,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{ font-family:'Assistant',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh;
+        display:flex; align-items:center; justify-content:center; padding:24px; }
+  h1,h2{ font-family:'Rubik',sans-serif; margin:0; }
+  .card{ width:100%; max-width:480px; background:var(--panel); border:1px solid var(--border);
+         border-radius:18px; padding:30px; box-shadow:var(--shadow); }
+  .card h1{ font-size:19px; text-align:center; }
+  .sub{ text-align:center; font-size:13px; color:var(--muted); margin-top:4px; margin-bottom:22px; }
+  label{ display:block; font-size:13px; font-weight:600; margin:10px 0 5px; }
+  input{
+    width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:9px;
+    font-family:'Assistant'; font-size:14px; background:#FCFBF7; color:var(--ink);
+  }
+  input:focus{ outline:none; border-color:var(--green-bright); }
+  button{ border:none; border-radius:10px; padding:12px 16px; font-family:'Rubik'; font-weight:700;
+          font-size:14.5px; cursor:pointer; width:100%; margin-top:20px; }
+  .btn-primary{ background:var(--green); color:#fff; }
+  .btn-primary:hover{ background:var(--green-bright); }
+  .btn-primary:disabled{ opacity:.6; cursor:not-allowed; }
+  .error{ color:var(--red); font-size:13px; margin-top:12px; text-align:center; display:none; }
+  .state-screen{ text-align:center; padding:20px 0; }
+  .state-screen .t{ font-size:16px; font-weight:700; margin:10px 0 6px; }
+  .state-screen .s{ font-size:13.5px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div id="loadingState" class="state-screen">בודק קישור...</div>
+</div>
+
+<script>
+const API = '/api';
+const $ = (id) => document.getElementById(id);
+const token = (location.pathname.match(/^\/join\/([a-zA-Z0-9]+)/) || [])[1];
+
+function renderInvalid(){
+  $('card').innerHTML = `
+    <div class="state-screen">
+      <div class="t">הקישור אינו תקין</div>
+      <div class="s">הקישור הזה כבר נוצל בעבר, או שאינו קיים. יש לבקש קישור חדש מהמנהל שהזמין אותך.</div>
+    </div>
+  `;
+}
+
+function renderForm(companyName){
+  $('card').innerHTML = `
+    <h1>הצטרפות כעובד — ${companyName}</h1>
+    <div class="sub">מלא/י את הפרטים כדי לפתוח לך חשבון במערכת</div>
+    <form id="joinForm">
+      <label>שם מלא</label><input type="text" id="fName" required>
+      <label>אימייל (ישמש להתחברות)</label><input type="email" id="fEmail" required>
+      <label>סיסמה (לפחות 8 תווים)</label><input type="password" id="fPassword" required minlength="8">
+      <label>טלפון</label><input type="text" id="fPhone">
+      <button type="submit" class="btn-primary" id="submitBtn">הצטרפות</button>
+      <div class="error" id="formError"></div>
+    </form>
+  `;
+  $('joinForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = $('formError');
+    errEl.style.display = 'none';
+    const btn = $('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'שולח...';
+    try{
+      const res = await fetch(`${API}/employee-intake/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: $('fName').value.trim(),
+          email: $('fEmail').value.trim(),
+          password: $('fPassword').value,
+          phone: $('fPhone').value.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if(!res.ok) throw new Error(data?.message || data?.error || `שגיאה (${res.status})`);
+      renderSuccess();
+    }catch(err){
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'הצטרפות';
+    }
+  });
+}
+
+function renderSuccess(){
+  $('card').innerHTML = `
+    <div class="state-screen">
+      <div class="t">ברוך הבא!</div>
+      <div class="s">החשבון שלך נוצר בהצלחה. אפשר להתחבר עכשיו עם האימייל והסיסמה שהזנת.</div>
+    </div>
+  `;
+}
+
+(async function boot(){
+  if(!token){ renderInvalid(); return; }
+  try{
+    const res = await fetch(`${API}/employee-intake/${token}`);
+    if(!res.ok){ renderInvalid(); return; }
+    const data = await res.json();
+    renderForm(data.company_name);
+  }catch(err){ renderInvalid(); }
+})();
+</script>
+</body>
+</html>
