@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TreeTime | ניהול בעלים</title>
+<link rel="icon" type="image/png" href="/api/branding/logo" id="faviconLink">
+<script>
+  (function(){
+    var v = Date.now();
+    document.getElementById('faviconLink').href = '/api/branding/logo?v=' + v;
+    document.addEventListener('DOMContentLoaded', function(){
+      var img = document.getElementById('brandLogoImg');
+      if(img) img.src = '/api/branding/logo?v=' + v;
+    });
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10241C; --ink-soft:#1D3327; --bg:#FAF9F4; --panel:#FFFFFF; --border:#E4E1D6;
+    --muted:#6B7568; --green:#2F6F4E; --green-soft:#E7F1EA; --green-bright:#3F9863;
+    --amber:#C9822A; --amber-soft:#FBEEDD; --red:#C0392B; --red-soft:#FBE7E4; --gold:#B08D3E;
+    --shadow: 0 1px 2px rgba(16,36,28,0.04), 0 8px 24px rgba(16,36,28,0.06);
+    --radius: 14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{ font-family:'Assistant',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; }
+  h1,h2,h3,h4{ font-family:'Rubik',sans-serif; margin:0; }
+  .mono{ font-family:'Roboto Mono',monospace; }
+  a{ color:inherit; }
+  .hidden{ display:none !important; }
+
+  /* ---- login ---- */
+  #loginScreen{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .login-card{ width:100%; max-width:380px; background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow); }
+  .login-card h1{ font-size:19px; text-align:center; margin-bottom:2px; }
+  .login-card .sub{ text-align:center; font-size:12.5px; color:var(--muted); margin-bottom:20px; }
+  label{ display:block; font-size:13px; font-weight:600; margin:12px 0 6px; }
+  input, select, textarea{
+    width:100%; padding:11px 13px; border:1px solid var(--border); border-radius:10px;
+    font-family:'Assistant'; font-size:14.5px; background:#FCFBF7; color:var(--ink);
+  }
+  textarea{ resize:vertical; min-height:70px; }
+  input:focus, select:focus, textarea:focus{ outline:none; border-color:var(--green-bright); }
+  button{ border:none; border-radius:10px; padding:11px 16px; font-family:'Rubik'; font-weight:700; font-size:14px; cursor:pointer; transition:.15s; }
+  .btn-primary{ background:var(--green); color:#fff; width:100%; margin-top:16px; }
+  .btn-primary:hover{ background:var(--green-bright); }
+  .btn-sm{ padding:7px 12px; font-size:12.5px; border-radius:8px; }
+  .btn-outline{ background:#fff; border:1px solid var(--border); color:var(--ink); }
+  .btn-outline:hover{ background:var(--green-soft); border-color:var(--green-bright); }
+  .btn-danger-outline{ background:#fff; border:1px solid var(--red); color:var(--red); }
+  .error{ color:var(--red); font-size:13px; margin-top:10px; text-align:center; }
+
+  /* ---- app shell ---- */
+  #app{ display:flex; min-height:100vh; }
+  .sidebar{ width:220px; background:var(--ink); color:#EFEAD9; display:flex; flex-direction:column; padding:22px 16px; flex-shrink:0; }
+  .brand{ display:flex; align-items:center; gap:10px; padding:6px 8px 20px; border-bottom:1px solid rgba(239,234,217,.12); margin-bottom:16px; }
+  .brand img{ width:34px; height:34px; border-radius:9px; }
+  .brand .t1{ font-family:'Rubik'; font-weight:700; font-size:15px; color:#FBF8EF; }
+  .brand .t2{ font-size:11px; color:#9FB0A2; }
+  .brand .t3{ font-size:9.5px; color:#6E7D71; margin-top:1px; }
+  .nav-item{ display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; color:#C9D3C7; font-size:14px; font-weight:500; cursor:pointer; margin-bottom:3px; }
+  .notif-bell-btn{
+    display:flex; align-items:center; gap:10px; width:100%; margin-bottom:14px;
+    padding:10px 12px; border-radius:10px; border:1px solid rgba(239,234,217,0.12);
+    background:rgba(239,234,217,0.06); color:#C9D3C7; font-family:'Assistant'; font-size:14px; font-weight:600;
+    cursor:pointer; text-align:right;
+  }
+  .notif-bell-btn:hover{ background:rgba(239,234,217,0.12); color:#FBF8EF; }
+  .notif-badge{
+    margin-right:auto; background:var(--red); color:#fff; font-size:10.5px; font-weight:700;
+    border-radius:20px; padding:1px 7px; min-width:18px; text-align:center;
+  }
+  .notif-item{ padding:12px 14px; border-radius:10px; border:1px solid var(--border); margin-bottom:8px; cursor:pointer; background:var(--panel); }
+  .notif-item.unread{ background:var(--green-soft); border-color:var(--green-bright); }
+  .notif-item:hover{ border-color:var(--green-bright); }
+  .notif-item .t{ font-weight:700; font-size:13.5px; }
+  .notif-item .b{ font-size:12.5px; color:var(--muted); margin-top:3px; line-height:1.5; }
+  .notif-item .time{ font-size:11px; color:var(--muted); margin-top:6px; }
+  .nav-item:hover{ background:rgba(239,234,217,.06); color:#FBF8EF; }
+  .nav-item.active{ background:rgba(63,152,99,.18); color:#B7F0CB; }
+  .sidebar-foot{ margin-top:auto; padding-top:14px; border-top:1px solid rgba(239,234,217,.12); font-size:12.5px; color:#9FB0A2; }
+  .sidebar-foot button{ width:100%; background:none; color:#C9D3C7; border:1px solid rgba(239,234,217,.15); margin-top:8px; }
+
+  .main{ flex:1; padding:28px 32px; max-width:1200px; }
+  .page-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; }
+  .page-head h2{ font-size:22px; }
+
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px; }
+  .stat-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; margin-bottom:18px; }
+  .stat-tile{ background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; box-shadow:var(--shadow); }
+  .stat-tile .label{ font-size:12px; color:var(--muted); font-weight:600; }
+  .stat-tile .value{ font-family:'Rubik'; font-size:26px; font-weight:800; margin-top:6px; }
+  .stat-tile .foot{ font-size:11.5px; color:var(--muted); margin-top:4px; }
+  #companySearchInput{
+    width:100%; padding:10px 13px; border:1px solid var(--border); border-radius:10px;
+    font-family:'Assistant'; font-size:14px; background:var(--panel); color:var(--ink);
+  }
+  #companySearchInput:focus{ outline:none; border-color:var(--green-bright); }
+  .activity-row{ display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .activity-row:last-child{ border-bottom:none; }
+
+  .changelog-day{ margin-bottom:22px; }
+  .changelog-day-label{ font-family:'Rubik'; font-weight:700; font-size:13px; color:var(--muted); margin-bottom:10px; padding-right:2px; }
+  .changelog-entry{ background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:var(--shadow); display:flex; gap:12px; align-items:flex-start; cursor:pointer; }
+  .changelog-entry:hover{ border-color:var(--green-bright); }
+  .changelog-detail{ white-space:pre-wrap; line-height:1.7; font-size:14px; }
+  .changelog-detail-meta{ display:flex; flex-wrap:wrap; gap:16px; font-size:12.5px; color:var(--muted); margin:14px 0; padding:12px; background:var(--bg); border-radius:10px; }
+  .changelog-badge{ flex-shrink:0; font-size:10.5px; font-weight:700; padding:3px 10px; border-radius:20px; white-space:nowrap; margin-top:2px; }
+  .changelog-badge.added{ background:var(--green-soft); color:var(--green); }
+  .changelog-badge.changed{ background:#E7EEF1; color:#2C5F73; }
+  .changelog-badge.removed{ background:var(--red-soft); color:var(--red); }
+  .changelog-badge.fixed{ background:var(--amber-soft); color:var(--amber); }
+  .changelog-entry .body{ flex:1; }
+  .changelog-entry .head{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .changelog-entry .t{ font-weight:700; font-size:14px; }
+  .changelog-entry .ver{ font-family:'Roboto Mono'; font-size:11px; color:var(--gold); flex-shrink:0; }
+  .changelog-entry .d{ font-size:13px; color:var(--muted); margin-top:5px; line-height:1.6; }
+  .changelog-entry .time{ font-size:11px; color:var(--muted); margin-top:6px; }
+  .company-card{ background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow); cursor:pointer; }
+  .company-card:hover{ border-color:var(--green-bright); }
+  .company-card .top{ display:flex; justify-content:space-between; align-items:start; margin-bottom:10px; }
+  .company-card h3{ font-size:16px; }
+  .badge{ display:inline-block; font-size:10.5px; font-weight:700; padding:2px 9px; border-radius:20px; }
+  .badge.active{ background:var(--green-soft); color:var(--green); }
+  .badge.trial{ background:var(--amber-soft); color:var(--amber); }
+  .badge.suspended, .badge.cancelled{ background:var(--red-soft); color:var(--red); }
+  .stat-row{ display:flex; gap:14px; font-size:12.5px; color:var(--muted); margin-top:10px; flex-wrap:wrap; }
+  .stat-row b{ color:var(--ink); font-family:'Roboto Mono'; }
+  .tickets-flag{ margin-top:10px; font-size:12px; color:var(--red); font-weight:700; }
+
+  .card{ background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow); margin-bottom:16px; }
+  .field-row{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  @media(max-width:1100px){ .field-row{ grid-template-columns:repeat(2,1fr); } }
+  @media(max-width:640px){ .field-row{ grid-template-columns:1fr; } }
+  .back-link{ font-size:13px; color:var(--muted); cursor:pointer; margin-bottom:14px; display:inline-block; }
+  .back-link:hover{ color:var(--green); }
+
+  table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  th{ text-align:right; color:var(--muted); font-weight:600; font-size:12px; padding:8px 10px; border-bottom:1px solid var(--border); }
+  td{ padding:9px 10px; border-bottom:1px solid var(--border); }
+  tr:last-child td{ border-bottom:none; }
+  .row-actions{ display:flex; gap:6px; }
+
+  .tickets-list{ display:flex; flex-direction:column; gap:8px; }
+  .ticket-row{ background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 16px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+  .ticket-row:hover{ border-color:var(--green-bright); }
+  .ticket-row .subj{ font-weight:700; font-size:14px; }
+  .ticket-row .meta{ font-size:12px; color:var(--muted); margin-top:3px; }
+  .pill{ font-size:11px; font-weight:700; padding:3px 10px; border-radius:20px; }
+  .pill.open{ background:var(--amber-soft); color:var(--amber); }
+  .pill.pending{ background:#E7EEF1; color:#2C5F73; }
+  .pill.closed{ background:var(--green-soft); color:var(--green); }
+  .pill-green{ background:var(--green-soft); color:var(--green); }
+  .pill-amber{ background:var(--amber-soft); color:var(--amber); }
+
+  .thread{ display:flex; flex-direction:column; gap:10px; margin:16px 0; }
+  .msg{ max-width:75%; padding:10px 14px; border-radius:12px; font-size:13.5px; line-height:1.5; }
+  .msg .who{ font-size:11px; font-weight:700; margin-bottom:3px; opacity:.7; }
+  .msg.employee{ background:#F1EFE5; align-self:flex-start; border-bottom-right-radius:3px; }
+  .msg.owner{ background:var(--green-soft); align-self:flex-end; border-bottom-left-radius:3px; }
+
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(16,36,28,.45); display:flex; align-items:center; justify-content:center; z-index:50; }
+  .modal{ background:var(--panel); border-radius:16px; padding:24px; width:100%; max-width:440px; max-height:88vh; overflow:auto; }
+  .modal.modal-wide{ max-width:760px; }
+  .modal h3{ margin-bottom:14px; }
+  .toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; padding:11px 20px; border-radius:10px; font-size:13.5px; z-index:100; }
+  .empty-state{ text-align:center; color:var(--muted); padding:40px 0; font-size:14px; }
+  .guide-category{ margin-bottom:18px; }
+  .guide-category-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .guide-video-row{ display:flex; gap:12px; align-items:center; padding:10px; border-bottom:1px solid var(--border); }
+  .guide-video-row:last-child{ border-bottom:none; }
+  .guide-video-row img{ width:96px; height:54px; object-fit:cover; border-radius:8px; flex-shrink:0; background:#eee; }
+  .guide-video-row .info{ flex:1; min-width:0; }
+  .guide-video-row .t{ font-weight:700; font-size:13.5px; }
+  .guide-video-row .d{ font-size:12px; color:var(--muted); margin-top:2px; }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>TreeTime — ניהול בעלים</h1>
+    <div class="sub">גישה מוגבלת לצוות TreeTime בלבד</div>
+    <form id="loginForm">
+      <label>אימייל</label>
+      <input type="email" id="ownerEmail" required autocomplete="username">
+      <label>סיסמה</label>
+      <input type="password" id="ownerPassword" required autocomplete="current-password">
+      <button type="submit" class="btn-primary">התחברות</button>
+      <div class="error hidden" id="loginError"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <div class="sidebar">
+    <div class="brand">
+      <img id="brandLogoImg" src="/api/branding/logo" alt="TreeTime">
+      <div><div class="t1">TreeTime</div><div class="t2">ניהול בעלים</div><div class="t3">By Tree Tech</div></div>
+    </div>
+    <button class="notif-bell-btn" id="notifBellBtn" onclick="openNotificationsModal()">🔔 <span>התראות</span><span class="notif-badge hidden" id="notifBadge">0</span></button>
+    <div class="nav-item active" data-page="dashboard">📊 דשבורד</div>
+    <div class="nav-item" data-page="companies">🏢 לקוחות</div>
+    <div class="nav-item" data-page="tickets">🎫 פניות תמיכה</div>
+    <div class="nav-item" data-page="guides">🎥 הדרכות</div>
+    <div class="nav-item" data-page="branding">🎨 מיתוג</div>
+    <div class="nav-item" data-page="changelog">📜 עדכוני מערכת</div>
+    <div class="sidebar-foot">
+      <div id="ownerWho"></div>
+      <button id="changePasswordBtn" style="margin-top:8px;">שינוי סיסמה</button>
+      <button id="logoutBtn">התנתקות</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- Dashboard page -->
+    <div id="page-dashboard" class="hidden">
+      <div class="page-head"><h2>דשבורד</h2></div>
+      <div id="dashboardBody"><div class="empty-state">טוען...</div></div>
+    </div>
+
+    <!-- Companies list page -->
+    <div id="page-companies" class="hidden">
+      <div class="page-head">
+        <h2>לקוחות</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-outline" style="width:auto;margin:0;" id="adminInviteLinksBtn">🔗 לינק הרשמה לאדמין חדש</button>
+          <button class="btn-primary" style="width:auto;margin:0;" id="newCompanyBtn">+ לקוח חדש</button>
+        </div>
+      </div>
+      <input type="text" id="companySearchInput" placeholder="חיפוש לקוח לפי שם, מזהה, אימייל..." style="margin-bottom:14px;">
+      <div class="grid" id="companiesGrid"></div>
+    </div>
+
+    <!-- Company detail page -->
+    <div id="page-company-detail" class="hidden">
+      <span class="back-link" id="backToCompanies">← חזרה ללקוחות</span>
+      <div class="page-head">
+        <div>
+          <h2 id="companyDetailName"></h2>
+          <div class="mono" id="companyDetailSlug" style="font-size:12px;color:var(--gold);margin-top:4px;"></div>
+        </div>
+        <button class="btn-outline btn-sm" id="impersonateBtn">⚡ כניסה מהירה למערכת</button>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:14px;">פרטי חברה</h3>
+        <div class="field-row">
+          <div><label>שם החברה</label><input id="editName"></div>
+          <div><label>סטטוס</label>
+            <select id="editStatus"><option value="active">פעיל</option><option value="suspended">מושהה</option><option value="cancelled">מבוטל</option></select>
+          </div>
+          <div><label>תוכנית</label>
+            <select id="editPlan"><option value="trial">מנוי ניסיון</option><option value="paid">מנוי בתשלום</option><option value="cancelled">מנוי מבוטל</option></select>
+          </div>
+          <div><label>אימייל ליצירת קשר</label><input id="editContactEmail"></div>
+          <div><label>טלפון</label><input id="editContactPhone"></div>
+          <div><label>ח.פ / ע.מ</label><input id="editBusinessId"></div>
+          <div><label>כתובת</label><input id="editAddress"></div>
+        </div>
+        <label>הערות פנימיות</label>
+        <textarea id="editNotes"></textarea>
+        <button class="btn-primary" style="width:auto;" id="saveCompanyBtn">שמור שינויים</button>
+        <span class="error hidden" id="companyError" style="display:inline-block;margin-inline-start:12px;"></span>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:14px;">פרטי כניסה — אדמין ראשי</h3>
+        <div class="field-row">
+          <div><label>שם משתמש (אימייל)</label><input id="adminUsername" readonly></div>
+          <div style="grid-column:span 2;">
+            <label>סיסמה</label>
+            <div style="display:flex;gap:8px;">
+              <input id="adminPasswordDisplay" readonly placeholder="לחץ על 'אפס סיסמה' כדי ליצור סיסמה חדשה">
+              <button class="btn-outline btn-sm" id="copyAdminPasswordBtn" style="white-space:nowrap;">העתק</button>
+            </div>
+          </div>
+          <div style="align-self:end;">
+            <button class="btn-outline btn-sm" id="resetAdminPasswordBtn" style="width:100%;">אפס סיסמה</button>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:8px;">מסיבות אבטחה לא ניתן לשלוף סיסמה קיימת — ניתן רק לקבוע סיסמה חדשה ולהעתיק אותה מכאן.</div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:14px;">סטטיסטיקת פעילות</h3>
+        <div class="stat-row" id="companyStats" style="font-size:13.5px;gap:22px;"></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h3>עובדים</h3>
+        </div>
+        <table>
+          <thead><tr><th>שם</th><th>אימייל</th><th>תפקיד</th><th>סטטוס</th><th></th></tr></thead>
+          <tbody id="employeesTable"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h3>לוג פעילות — קריאות שרת אחרונות</h3>
+          <span style="font-size:12px;color:var(--muted);">200 אחרונות</span>
+        </div>
+        <div style="max-height:340px;overflow:auto;">
+          <table>
+            <thead><tr><th>זמן</th><th>משתמש</th><th>שיטה</th><th>נתיב</th><th>סטטוס</th></tr></thead>
+            <tbody id="activityLogTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tickets list page -->
+    <div id="page-tickets" class="hidden">
+      <div class="page-head"><h2>פניות תמיכה</h2></div>
+      <div class="tickets-list" id="ticketsList"></div>
+    </div>
+
+    <!-- Ticket thread page -->
+    <div id="page-ticket-detail" class="hidden">
+      <span class="back-link" id="backToTickets">← חזרה לפניות</span>
+      <div class="page-head">
+        <h2 id="ticketSubject"></h2>
+        <div style="display:flex;gap:8px;">
+          <select id="ticketPrioritySelect">
+            <option value="low">עדיפות: נמוכה</option>
+            <option value="normal">עדיפות: רגילה</option>
+            <option value="high">עדיפות: גבוהה</option>
+            <option value="urgent">עדיפות: דחוף</option>
+          </select>
+          <select id="ticketStatusSelect"><option value="open">פתוח</option><option value="pending">ממתין</option><option value="closed">סגור</option></select>
+        </div>
+      </div>
+      <div class="card" id="ticketMetaCard" style="font-size:13px;color:var(--muted);"></div>
+      <div class="card" id="ticketCompanyCard"></div>
+      <div class="card">
+        <div class="thread" id="ticketThread"></div>
+        <textarea id="replyBox" placeholder="כתוב תגובה..."></textarea>
+        <button class="btn-primary" style="width:auto;margin-top:10px;" id="sendReplyBtn">שלח תגובה</button>
+      </div>
+    </div>
+
+    <!-- Guides management page -->
+    <div id="page-guides" class="hidden">
+      <div class="page-head">
+        <h2>הדרכות</h2>
+        <button class="btn-primary" style="width:auto;margin:0;" id="newGuideCategoryBtn">+ קטגוריה חדשה</button>
+      </div>
+      <div id="guideCategoriesWrap"></div>
+    </div>
+
+    <!-- Branding page -->
+    <div id="page-branding" class="hidden">
+      <div class="page-head"><h2>מיתוג</h2></div>
+      <div class="card">
+        <h3 style="margin-bottom:14px;">לוגו הפלטפורמה</h3>
+        <div class="hint" style="margin-bottom:14px;">הלוגו הזה משמש כפאביקון וכסמל המותג בכל המערכות — הפאנל שלך, האפליקציה של הלקוחות, וכל עמוד ציבורי.</div>
+        <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+          <img id="brandingPreview" src="/api/branding/logo" alt="לוגו נוכחי" style="width:96px;height:96px;object-fit:contain;border:1px solid var(--border);border-radius:12px;padding:8px;background:#fff;">
+          <div>
+            <input type="file" id="brandingFileInput" accept=".png,.jpg,.jpeg,.svg,.webp">
+            <button class="btn-primary btn-sm" style="width:auto;margin-top:10px;" id="uploadBrandingBtn">העלה לוגו חדש</button>
+            <div class="hint" id="brandingMsg" style="margin-top:8px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Changelog page -->
+    <div id="page-changelog" class="hidden">
+      <div class="page-head">
+        <h2>עדכוני מערכת</h2>
+      </div>
+      <div class="hint" style="margin-bottom:16px;">יומן כל שינוי שבוצע במערכת — מתעדכן אוטומטית בכל שינוי אמיתי. לחץ על רישום כדי לראות פרטים מלאים.</div>
+      <div id="changelogList"></div>
+    </div>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+const API = '/api/owner';
+let token = localStorage.getItem('owner_token');
+let currentCompanyId = null;
+let currentPrimaryAdmin = null;
+let currentTicketId = null;
+
+const $ = (id) => document.getElementById(id);
+
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  $('toastRoot').appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts.headers || {}),
+    },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function showApp(show) {
+  $('loginScreen').classList.toggle('hidden', show);
+  $('app').classList.toggle('hidden', !show);
+}
+
+async function boot() {
+  if (!token) return showApp(false);
+  try {
+    const me = await api('/auth/me');
+    $('ownerWho').textContent = me.full_name;
+    showApp(true);
+    goToPage('dashboard');
+    loadOwnerNotifications();
+  } catch (err) {
+    token = null;
+    localStorage.removeItem('owner_token');
+    showApp(false);
+  }
+}
+
+$('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('loginError').classList.add('hidden');
+  try {
+    const data = await api('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: $('ownerEmail').value, password: $('ownerPassword').value }),
+    });
+    token = data.token;
+    localStorage.setItem('owner_token', token);
+    await boot();
+  } catch (err) {
+    $('loginError').textContent = err.message;
+    $('loginError').classList.remove('hidden');
+  }
+});
+
+$('logoutBtn').addEventListener('click', () => {
+  token = null;
+  localStorage.removeItem('owner_token');
+  showApp(false);
+});
+
+$('changePasswordBtn').addEventListener('click', () => {
+  renderModal(`
+    <h3>שינוי סיסמה</h3>
+    <label>סיסמה נוכחית</label><input id="cpCurrent" type="password" autocomplete="current-password">
+    <label>סיסמה חדשה (לפחות 8 תווים)</label><input id="cpNew" type="password" autocomplete="new-password">
+    <label>אימות סיסמה חדשה</label><input id="cpConfirm" type="password" autocomplete="new-password">
+    <button class="btn-primary" id="cpSaveBtn">שנה סיסמה</button>
+    <div class="error hidden" id="cpError"></div>
+  `);
+  $('cpSaveBtn').addEventListener('click', async () => {
+    $('cpError').classList.add('hidden');
+    const current_password = $('cpCurrent').value;
+    const new_password = $('cpNew').value;
+    const confirm = $('cpConfirm').value;
+    if (new_password.length < 8) {
+      $('cpError').textContent = 'הסיסמה החדשה חייבת להיות לפחות 8 תווים';
+      $('cpError').classList.remove('hidden');
+      return;
+    }
+    if (new_password !== confirm) {
+      $('cpError').textContent = 'אימות הסיסמה לא תואם';
+      $('cpError').classList.remove('hidden');
+      return;
+    }
+    try {
+      await api('/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) });
+      closeModal();
+      toast('הסיסמה שונתה בהצלחה');
+    } catch (err) {
+      $('cpError').textContent = err.message;
+      $('cpError').classList.remove('hidden');
+    }
+  });
+});
+
+document.querySelectorAll('.nav-item').forEach((el) => {
+  el.addEventListener('click', () => goToPage(el.dataset.page));
+});
+
+function goToPage(page) {
+  document.querySelectorAll('.nav-item').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
+  ['page-dashboard', 'page-companies', 'page-company-detail', 'page-tickets', 'page-ticket-detail', 'page-guides', 'page-branding', 'page-changelog'].forEach((id) => $(id).classList.add('hidden'));
+  if (page === 'dashboard') { $('page-dashboard').classList.remove('hidden'); loadOwnerDashboard(); }
+  if (page === 'companies') { $('page-companies').classList.remove('hidden'); loadCompanies(); }
+  if (page === 'tickets') { $('page-tickets').classList.remove('hidden'); loadTickets(); }
+  if (page === 'guides') { $('page-guides').classList.remove('hidden'); loadGuides(); }
+  if (page === 'branding') { $('page-branding').classList.remove('hidden'); $('brandingPreview').src = `/api/branding/logo?t=${Date.now()}`; }
+  if (page === 'changelog') { $('page-changelog').classList.remove('hidden'); loadChangelog(); }
+}
+
+const STATUS_LABEL = { active: 'פעיל', trial: 'פעיל', suspended: 'מושהה', cancelled: 'מבוטל' };
+const PLAN_LABEL = { trial: 'מנוי ניסיון', paid: 'מנוי בתשלום', cancelled: 'מנוי מבוטל' };
+
+async function loadOwnerDashboard() {
+  const body = $('dashboardBody');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+  try {
+    const d = await api('/companies/dashboard');
+    body.innerHTML = `
+      <div class="stat-grid">
+        <div class="stat-tile">
+          <div class="label">לקוחות פעילים</div>
+          <div class="value">${d.companies.active}</div>
+          <div class="foot">מתוך ${d.companies.total} סה״כ · ${d.companies.new_last_30d} חדשים ב-30 יום</div>
+        </div>
+        <div class="stat-tile">
+          <div class="label">עובדים במערכת</div>
+          <div class="value">${d.employees.active}</div>
+          <div class="foot">מתוך ${d.employees.total} סה״כ</div>
+        </div>
+        <div class="stat-tile">
+          <div class="label">טיימרים פעילים כרגע</div>
+          <div class="value">${d.running_timers}</div>
+          <div class="foot">בכל הלקוחות יחד</div>
+        </div>
+        <div class="stat-tile">
+          <div class="label">שעות עבודה — 30 יום אחרונים</div>
+          <div class="value">${d.hours_last_30d}</div>
+          <div class="foot">סה״כ בכל הלקוחות</div>
+        </div>
+        <div class="stat-tile">
+          <div class="label">פניות תמיכה פתוחות</div>
+          <div class="value">${d.open_tickets}</div>
+          <div class="foot">ממתינות לטיפול</div>
+        </div>
+        <div class="stat-tile">
+          <div class="label">לקוחות בניסיון</div>
+          <div class="value">${d.companies.trial}</div>
+          <div class="foot">${d.companies.suspended} מושהים</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:12px;">פילוח לפי תוכנית</h3>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          ${d.plan_breakdown.map((p) => `<span class="badge ${p.plan==='trial'?'trial':'active'}">${PLAN_LABEL[p.plan]||p.plan}: ${p.n}</span>`).join('') || '<span class="empty-state">אין נתונים</span>'}
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:12px;">לקוחות חדשים אחרונים</h3>
+        ${d.recent_companies.map((c) => `
+          <div class="activity-row">
+            <span><b>${c.name}</b> <span class="mono cell-muted">(${c.slug})</span></span>
+            <span class="cell-muted">${new Date(c.created_at).toLocaleDateString('he-IL')}</span>
+          </div>
+        `).join('') || '<div class="empty-state">אין עדיין לקוחות</div>'}
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:12px;">פעילות אחרונה במערכת</h3>
+        ${d.recent_activity.map((a) => `
+          <div class="activity-row">
+            <span>${a.employee_name} · ${a.company_name}</span>
+            <span class="cell-muted">${new Date(a.started_at).toLocaleString('he-IL')}${!a.ended_at ? ' · רץ כעת' : ''}</span>
+          </div>
+        `).join('') || '<div class="empty-state">אין עדיין פעילות</div>'}
+      </div>
+    `;
+  } catch (err) {
+    body.innerHTML = `<div class="empty-state">שגיאה: ${err.message}</div>`;
+  }
+}
+
+let allCompanies = [];
+
+async function loadCompanies() {
+  const grid = $('companiesGrid');
+  grid.innerHTML = '<div class="empty-state">טוען...</div>';
+  try {
+    allCompanies = await api('/companies');
+    $('companySearchInput').value = '';
+    renderCompaniesGrid(allCompanies);
+  } catch (err) {
+    grid.innerHTML = `<div class="empty-state">שגיאה: ${err.message}</div>`;
+  }
+}
+
+function renderCompaniesGrid(companies) {
+  const grid = $('companiesGrid');
+  if (!companies.length) { grid.innerHTML = '<div class="empty-state">לא נמצאו לקוחות תואמים.</div>'; return; }
+  grid.innerHTML = companies.map((c) => `
+    <div class="company-card" data-id="${c.id}">
+      <div class="top">
+        <h3>${c.name}</h3>
+        <span class="badge ${c.status}">${STATUS_LABEL[c.status] || c.status}</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);">תוכנית: ${PLAN_LABEL[c.plan] || c.plan}</div>
+      <div class="mono" style="font-size:11px;color:var(--gold);background:var(--amber-soft);display:inline-block;padding:2px 8px;border-radius:6px;margin-top:6px;">מזהה: ${c.slug}</div>
+      <div class="stat-row">
+        <div>עובדים <b>${c.employee_count}</b></div>
+        <div>טיימרים פעילים <b>${c.running_timers}</b></div>
+        <div>שעות ב-30 יום <b>${c.hours_last_30d ?? 0}</b></div>
+      </div>
+      ${c.open_tickets > 0 ? `<div class="tickets-flag">🎫 ${c.open_tickets} פניות פתוחות</div>` : ''}
+    </div>
+  `).join('');
+  grid.querySelectorAll('.company-card').forEach((el) => {
+    el.addEventListener('click', () => openCompany(el.dataset.id));
+  });
+}
+
+$('companySearchInput').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  if (!q) { renderCompaniesGrid(allCompanies); return; }
+  renderCompaniesGrid(allCompanies.filter((c) =>
+    (c.name || '').toLowerCase().includes(q) ||
+    (c.slug || '').toLowerCase().includes(q) ||
+    (c.contact_email || '').toLowerCase().includes(q) ||
+    (c.contact_phone || '').toLowerCase().includes(q)
+  ));
+});
+
+$('newCompanyBtn').addEventListener('click', () => {
+  renderModal(`
+    <h3>לקוח חדש</h3>
+    <label>שם החברה</label><input id="mCompanyName">
+    <label>אימייל ליצירת קשר</label><input id="mContactEmail">
+    <label>תוכנית</label>
+    <select id="mPlan"><option value="trial">ניסיון</option><option value="basic">בסיסי</option><option value="pro">מקצועי</option><option value="enterprise">ארגוני</option></select>
+    <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);">
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:6px;">חשבון האדמין הראשון של הלקוח:</div>
+    <label>שם מלא</label><input id="mAdminName">
+    <label>אימייל</label><input id="mAdminEmail">
+    <label>סיסמה זמנית</label><input id="mAdminPassword" type="text">
+    <button class="btn-primary" id="mCreateBtn">צור לקוח</button>
+    <div class="error hidden" id="mError"></div>
+  `);
+  $('mCreateBtn').addEventListener('click', async () => {
+    $('mError').classList.add('hidden');
+    try {
+      await api('/companies', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: $('mCompanyName').value,
+          contact_email: $('mContactEmail').value || null,
+          plan: $('mPlan').value,
+          admin_full_name: $('mAdminName').value,
+          admin_email: $('mAdminEmail').value,
+          admin_password: $('mAdminPassword').value,
+        }),
+      });
+      closeModal();
+      toast('הלקוח נוצר בהצלחה');
+      loadCompanies();
+    } catch (err) {
+      $('mError').textContent = err.message;
+      $('mError').classList.remove('hidden');
+    }
+  });
+});
+
+async function openAdminInviteLinksModal() {
+  renderModal(`
+    <h3>לינק הרשמה לאדמין חדש</h3>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
+      צור לינק חד-פעמי ושלח אותו ללקוח פוטנציאלי. הוא ימלא בעצמו טופס פתיחת סביבת עבודה, והחברה שלו תיפתח מיידית במצב <b>ניסיון (trial)</b>.
+      הלינק נעלם לאחר שימוש ראשון.
+    </div>
+    <label>הערה לזיהוי (אופציונלי — לדוגמה שם הלקוח)</label>
+    <div style="display:flex; gap:8px;">
+      <input id="mInviteNote" placeholder="לדוגמה: פגישה עם דני, 16.8" style="flex:1;">
+      <button class="btn-primary" id="mCreateInviteBtn" style="width:auto;white-space:nowrap;">צור לינק</button>
+    </div>
+    <div class="error hidden" id="mInviteError"></div>
+    <hr style="margin:18px 0;border:none;border-top:1px solid var(--border);">
+    <div id="mInviteLinksList"><div class="empty-state" style="padding:10px 0;">טוען...</div></div>
+  `, true);
+  $('mCreateInviteBtn').addEventListener('click', async () => {
+    $('mInviteError').classList.add('hidden');
+    try {
+      await api('/admin-signup-links', { method: 'POST', body: JSON.stringify({ note: $('mInviteNote').value.trim() || null }) });
+      $('mInviteNote').value = '';
+      loadAdminInviteLinks();
+    } catch (err) {
+      $('mInviteError').textContent = err.message;
+      $('mInviteError').classList.remove('hidden');
+    }
+  });
+  loadAdminInviteLinks();
+}
+
+async function loadAdminInviteLinks() {
+  const wrap = $('mInviteLinksList');
+  if (!wrap) return;
+  try {
+    const links = await api('/admin-signup-links');
+    wrap.innerHTML = links.length ? links.map((l) => {
+      const url = `${location.origin}/admin-invite/${l.token}/`;
+      const created = new Date(l.created_at).toLocaleDateString('he-IL');
+      const status = l.used
+        ? `<span class="pill pill-green">נוצל${l.created_company_name ? ` — ${l.created_company_name}` : ''}</span>`
+        : `<span class="pill pill-amber">ממתין לשימוש</span>`;
+      return `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);">
+          <div style="min-width:0;">
+            <div style="font-weight:600; font-size:13.5px;">${l.note || '(ללא הערה)'}</div>
+            <div class="mono" style="font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:340px;">${l.used ? url : url}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">נוצר: ${created}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+            ${status}
+            ${!l.used ? `<button class="btn-outline btn-sm" onclick="copyInviteLink('${url}')">העתק</button>
+              <button class="btn-danger-outline btn-sm" onclick="deleteAdminInviteLink(${l.id})">מחק</button>` : ''}
+          </div>
+        </div>`;
+    }).join('') : '<div class="empty-state" style="padding:10px 0;">עדיין לא נוצרו לינקים</div>';
+  } catch (err) {
+    wrap.innerHTML = `<div class="error">שגיאה בטעינת לינקים: ${err.message}</div>`;
+  }
+}
+
+function copyInviteLink(url) {
+  navigator.clipboard.writeText(url).then(() => toast('הלינק הועתק'));
+}
+
+async function deleteAdminInviteLink(id) {
+  if (!confirm('למחוק את הלינק?')) return;
+  try {
+    await api(`/admin-signup-links/${id}`, { method: 'DELETE' });
+    loadAdminInviteLinks();
+  } catch (err) { toast('שגיאה: ' + err.message); }
+}
+
+$('adminInviteLinksBtn').addEventListener('click', openAdminInviteLinksModal);
+
+async function openCompany(id) {
+  currentCompanyId = id;
+  document.querySelectorAll('.nav-item').forEach((el) => el.classList.remove('active'));
+  ['page-companies', 'page-tickets', 'page-ticket-detail'].forEach((pid) => $(pid).classList.add('hidden'));
+  $('page-company-detail').classList.remove('hidden');
+  try {
+    const data = await api(`/companies/${id}`);
+    const c = data.company;
+    $('companyDetailName').textContent = c.name;
+    $('companyDetailSlug').textContent = `מזהה ייחודי: ${c.slug}`;
+    $('companyDetailSlug').dataset.slug = c.slug;
+    $('editName').value = c.name || '';
+    $('editStatus').value = c.status;
+    $('editPlan').value = c.plan;
+    $('editContactEmail').value = c.contact_email || '';
+    $('editContactPhone').value = c.contact_phone || '';
+    $('editBusinessId').value = c.business_id || '';
+    $('editAddress').value = c.address || '';
+    $('editNotes').value = c.notes || '';
+
+    currentPrimaryAdmin = data.employees.find((e) => e.role === 'admin' && e.active) || data.employees.find((e) => e.role === 'admin') || null;
+    $('adminUsername').value = currentPrimaryAdmin ? currentPrimaryAdmin.email : 'אין אדמין בחברה זו';
+    $('adminPasswordDisplay').value = '';
+    $('resetAdminPasswordBtn').disabled = !currentPrimaryAdmin;
+
+    const statsRes = await api('/companies');
+    const stat = statsRes.find((x) => String(x.id) === String(id)) || {};
+    $('companyStats').innerHTML = `
+      <div>עובדים <b>${stat.employee_count ?? '-'}</b></div>
+      <div>עובדים פעילים <b>${stat.active_employee_count ?? '-'}</b></div>
+      <div>טיימרים רצים כרגע <b>${stat.running_timers ?? '-'}</b></div>
+      <div>שעות ב-30 יום <b>${stat.hours_last_30d ?? 0}</b></div>
+      <div>נוצר בתאריך <b>${c.created_at ? new Date(c.created_at).toLocaleString('he-IL') : '-'}</b></div>
+      <div>פעילות אחרונה <b>${stat.last_activity_at ? new Date(stat.last_activity_at).toLocaleString('he-IL') : 'אין'}</b></div>
+    `;
+
+    $('employeesTable').innerHTML = data.employees.map((e) => `
+      <tr data-emp-id="${e.id}">
+        <td>${e.full_name}</td>
+        <td class="mono">${e.email}</td>
+        <td>${e.role}</td>
+        <td>${e.active ? '<span class="badge active">פעיל</span>' : '<span class="badge suspended">מושבת</span>'}</td>
+        <td class="row-actions">
+          <button class="btn-outline btn-sm impersonate-emp-btn" title="היכנס למערכת כמשתמש הזה">⚡ היכנס בתור</button>
+          <button class="btn-outline btn-sm edit-emp-btn">ערוך</button>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);">אין עובדים</td></tr>';
+
+    $('employeesTable').querySelectorAll('.edit-emp-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const empId = e.target.closest('tr').dataset.empId;
+        const emp = data.employees.find((x) => String(x.id) === empId);
+        openEditEmployeeModal(emp);
+      });
+    });
+
+    $('employeesTable').querySelectorAll('.impersonate-emp-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        const empId = e.target.closest('tr').dataset.empId;
+        const emp = data.employees.find((x) => String(x.id) === empId);
+        // Open the tab synchronously, inside the click handler, before any await —
+        // otherwise browsers treat the later window.open as not user-initiated and
+        // silently block it (no error, nothing visibly happens).
+        const newTab = window.open('', '_blank');
+        try {
+          const res = await api(`/companies/${currentCompanyId}/impersonate`, {
+            method: 'POST',
+            body: JSON.stringify({ employee_id: Number(empId) }),
+          });
+          toast(`נכנס בתור ${res.employee.full_name} (${res.employee.role})...`);
+          const url = `/c/${$('companyDetailSlug').dataset.slug}/?token=${encodeURIComponent(res.token)}`;
+          if (newTab) newTab.location.href = url;
+          else window.open(url, '_blank');
+        } catch (err) {
+          if (newTab) newTab.close();
+          toast('שגיאה: ' + err.message);
+        }
+      });
+    });
+
+    const log = await api(`/companies/${id}/activity-log?limit=200`);
+    $('activityLogTable').innerHTML = log.map((l) => `
+      <tr>
+        <td class="mono" style="font-size:12px;">${new Date(l.created_at).toLocaleString('he-IL')}</td>
+        <td>${l.employee_name || l.api_key_name || '—'}</td>
+        <td class="mono">${l.method}</td>
+        <td class="mono" style="font-size:12px;">${l.path}</td>
+        <td>${l.status_code >= 400 ? `<span class="badge suspended">${l.status_code}</span>` : `<span class="badge active">${l.status_code}</span>`}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);">אין פעילות עדיין</td></tr>';
+  } catch (err) {
+    toast('שגיאה: ' + err.message);
+  }
+}
+
+$('backToCompanies').addEventListener('click', () => goToPage('companies'));
+
+$('saveCompanyBtn').addEventListener('click', async () => {
+  $('companyError').classList.add('hidden');
+  try {
+    await api(`/companies/${currentCompanyId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: $('editName').value,
+        status: $('editStatus').value,
+        plan: $('editPlan').value,
+        contact_email: $('editContactEmail').value,
+        contact_phone: $('editContactPhone').value,
+        business_id: $('editBusinessId').value,
+        address: $('editAddress').value,
+        notes: $('editNotes').value,
+      }),
+    });
+    toast('נשמר בהצלחה');
+    $('companyDetailName').textContent = $('editName').value;
+  } catch (err) {
+    $('companyError').textContent = err.message;
+    $('companyError').classList.remove('hidden');
+  }
+});
+
+function generateRandomPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let out = '';
+  for (let i = 0; i < 12; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
+$('resetAdminPasswordBtn').addEventListener('click', async () => {
+  if (!currentPrimaryAdmin) return;
+  if (!confirm(`לקבוע סיסמה חדשה ל-${currentPrimaryAdmin.email}? הסיסמה הקודמת תפסיק לעבוד.`)) return;
+  const newPassword = generateRandomPassword();
+  try {
+    await api(`/companies/${currentCompanyId}/employees/${currentPrimaryAdmin.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ password: newPassword }),
+    });
+    $('adminPasswordDisplay').value = newPassword;
+    toast('סיסמה חדשה נקבעה — העתק אותה ושלח ללקוח');
+  } catch (err) { toast('שגיאה: ' + err.message); }
+});
+
+$('copyAdminPasswordBtn').addEventListener('click', () => {
+  const val = $('adminPasswordDisplay').value;
+  if (!val) { toast('אין עדיין סיסמה להעתקה — לחץ קודם על "אפס סיסמה"'); return; }
+  navigator.clipboard?.writeText(val).then(() => toast('הסיסמה הועתקה')).catch(() => toast('לא ניתן היה להעתיק אוטומטית'));
+});
+
+function openEditEmployeeModal(emp) {
+  renderModal(`
+    <h3>עריכת עובד — ${emp.full_name}</h3>
+    <label>שם מלא</label><input id="eFullName" value="${emp.full_name}">
+    <label>אימייל (שם משתמש)</label><input id="eEmail" value="${emp.email}">
+    <label>סיסמה חדשה (השאר ריק אם לא משנים)</label><input id="ePassword" type="text" placeholder="••••••••">
+    <label>תפקיד</label>
+    <select id="eRole">
+      <option value="employee" ${(emp.role === 'employee' || emp.role === 'manager') ? 'selected' : ''}>עובד</option>
+      <option value="admin" ${emp.role === 'admin' ? 'selected' : ''}>אדמין</option>
+    </select>
+    <label>סטטוס</label>
+    <select id="eActive">
+      <option value="true" ${emp.active ? 'selected' : ''}>פעיל</option>
+      <option value="false" ${!emp.active ? 'selected' : ''}>מושבת</option>
+    </select>
+    <button class="btn-primary" id="eSaveBtn">שמור</button>
+    <div class="error hidden" id="eError"></div>
+  `);
+  $('eSaveBtn').addEventListener('click', async () => {
+    $('eError').classList.add('hidden');
+    try {
+      const body = {
+        full_name: $('eFullName').value,
+        email: $('eEmail').value,
+        role: $('eRole').value,
+        active: $('eActive').value === 'true',
+      };
+      if ($('ePassword').value) body.password = $('ePassword').value;
+      await api(`/companies/${currentCompanyId}/employees/${emp.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      closeModal();
+      toast('עודכן בהצלחה');
+      openCompany(currentCompanyId);
+    } catch (err) {
+      $('eError').textContent = err.message;
+      $('eError').classList.remove('hidden');
+    }
+  });
+}
+
+$('impersonateBtn').addEventListener('click', async () => {
+  const newTab = window.open('', '_blank');
+  try {
+    const data = await api(`/companies/${currentCompanyId}/impersonate`, { method: 'POST', body: JSON.stringify({}) });
+    toast(`נכנס בתור ${data.employee.full_name}...`);
+    const url = `/c/${$('companyDetailSlug').dataset.slug}/?token=${encodeURIComponent(data.token)}`;
+    if (newTab) newTab.location.href = url;
+    else window.open(url, '_blank');
+  } catch (err) {
+    if (newTab) newTab.close();
+    toast('שגיאה: ' + err.message);
+  }
+});
+
+/* ---- Tickets ---- */
+const PRIORITY_LABEL = { low: 'נמוכה', normal: 'רגילה', high: 'גבוהה', urgent: 'דחוף' };
+const STATUS_TICKET_LABEL = { open: 'פתוח', pending: 'ממתין', closed: 'סגור' };
+
+async function loadTickets() {
+  const list = $('ticketsList');
+  list.innerHTML = '<div class="empty-state">טוען...</div>';
+  try {
+    const tickets = await api('/tickets');
+    if (!tickets.length) { list.innerHTML = '<div class="empty-state">אין פניות תמיכה</div>'; return; }
+    list.innerHTML = tickets.map((t) => `
+      <div class="ticket-row" data-id="${t.id}">
+        <div>
+          <div class="subj">${t.subject}</div>
+          <div class="meta">${t.company_name} · עדיפות: ${PRIORITY_LABEL[t.priority]} · ${new Date(t.updated_at).toLocaleString('he-IL')}</div>
+        </div>
+        <span class="pill ${t.status}">${STATUS_TICKET_LABEL[t.status]}</span>
+      </div>
+    `).join('');
+    list.querySelectorAll('.ticket-row').forEach((el) => el.addEventListener('click', () => openTicket(el.dataset.id)));
+  } catch (err) {
+    list.innerHTML = `<div class="empty-state">שגיאה: ${err.message}</div>`;
+  }
+}
+
+async function openTicket(id) {
+  currentTicketId = id;
+  document.querySelectorAll('.nav-item').forEach((el) => el.classList.remove('active'));
+  ['page-companies', 'page-company-detail', 'page-tickets'].forEach((pid) => $(pid).classList.add('hidden'));
+  $('page-ticket-detail').classList.remove('hidden');
+  await renderTicket();
+}
+
+async function renderTicket() {
+  const data = await api(`/tickets/${currentTicketId}`);
+  const t = data.ticket;
+  $('ticketSubject').textContent = t.subject;
+  $('ticketStatusSelect').value = t.status;
+  $('ticketPrioritySelect').value = t.priority;
+  $('ticketMetaCard').textContent = `לקוח: ${t.company_name} · נפתח: ${new Date(t.created_at).toLocaleString('he-IL')}`;
+  $('ticketThread').innerHTML = data.messages.map((m) => `
+    <div class="msg ${m.sender_type}">
+      <div class="who">${m.sender_name} · ${new Date(m.created_at).toLocaleString('he-IL')}</div>
+      <div>${m.body.replace(/</g, '&lt;')}</div>
+    </div>
+  `).join('');
+
+  try {
+    const companyData = await api(`/companies/${t.company_id}`);
+    const c = companyData.company;
+    $('ticketCompanyCard').innerHTML = `
+      <h3 style="margin-bottom:12px;">פרטי לקוח</h3>
+      <div class="field-row" style="font-size:13px;">
+        <div>שם החברה<br><b>${c.name}</b></div>
+        <div>מזהה סביבת עבודה<br><b class="mono">${c.slug}</b></div>
+        <div>סטטוס<br><b>${STATUS_LABEL[c.status] || c.status}</b></div>
+        <div>תוכנית<br><b>${PLAN_LABEL[c.plan] || c.plan}</b></div>
+        <div>אימייל ליצירת קשר<br><b>${c.contact_email || '—'}</b></div>
+        <div>טלפון<br><b>${c.contact_phone || '—'}</b></div>
+        <div>ח.פ / ע.מ<br><b>${c.business_id || '—'}</b></div>
+        <div>כתובת<br><b>${c.address || '—'}</b></div>
+        <div>מספר עובדים<br><b>${companyData.employees.length}</b></div>
+        <div>לקוח מאז<br><b>${new Date(c.created_at).toLocaleDateString('he-IL')}</b></div>
+      </div>
+      <button class="btn-outline btn-sm" style="margin-top:14px;" onclick="openCompany(${c.id})">פתח כרטיס לקוח מלא ←</button>
+    `;
+  } catch (err) {
+    $('ticketCompanyCard').innerHTML = `<div class="error">שגיאה בטעינת פרטי הלקוח: ${err.message}</div>`;
+  }
+}
+
+$('backToTickets').addEventListener('click', () => goToPage('tickets'));
+
+$('ticketStatusSelect').addEventListener('change', async (e) => {
+  try {
+    await api(`/tickets/${currentTicketId}`, { method: 'PATCH', body: JSON.stringify({ status: e.target.value }) });
+    toast('סטטוס עודכן');
+  } catch (err) { toast('שגיאה: ' + err.message); }
+});
+
+$('ticketPrioritySelect').addEventListener('change', async (e) => {
+  try {
+    await api(`/tickets/${currentTicketId}`, { method: 'PATCH', body: JSON.stringify({ priority: e.target.value }) });
+    toast('עדיפות עודכנה');
+  } catch (err) { toast('שגיאה: ' + err.message); }
+});
+
+$('sendReplyBtn').addEventListener('click', async () => {
+  const body = $('replyBox').value.trim();
+  if (!body) return;
+  try {
+    await api(`/tickets/${currentTicketId}/messages`, { method: 'POST', body: JSON.stringify({ body }) });
+    $('replyBox').value = '';
+    await renderTicket();
+  } catch (err) { toast('שגיאה: ' + err.message); }
+});
+
+/* ---- Guides ---- */
+let guideCategories = [];
+
+function youtubeId(url) {
+  const m = String(url || '').match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/);
+  return m ? m[1] : null;
+}
+
+async function loadGuides() {
+  const wrap = $('guideCategoriesWrap');
+  wrap.innerHTML = '<div class="empty-state">טוען...</div>';
+  try {
+    guideCategories = await api('/guides');
+    renderGuideCategories();
+  } catch (err) {
+    wrap.innerHTML = `<div class="empty-state">שגיאה: ${err.message}</div>`;
+  }
+}
+
+function renderGuideCategories() {
+  const wrap = $('guideCategoriesWrap');
+  if (!guideCategories.length) {
+    wrap.innerHTML = '<div class="empty-state">אין עדיין קטגוריות הדרכה. לחץ על "קטגוריה חדשה" כדי להתחיל.</div>';
+    return;
+  }
+  wrap.innerHTML = guideCategories.map((c) => `
+    <div class="card guide-category">
+      <div class="guide-category-head">
+        <h3>${c.name}</h3>
+        <div style="display:flex; gap:6px;">
+          <button class="btn-outline btn-sm" onclick="openVideoModal(${c.id})">+ סרטון</button>
+          <button class="btn-outline btn-sm" onclick="renameCategory(${c.id}, '${c.name.replace(/'/g, "\\'")}')">ערוך שם</button>
+          <button class="btn-danger-outline btn-sm" onclick="deleteCategory(${c.id})">מחק קטגוריה</button>
+        </div>
+      </div>
+      ${c.videos.length ? c.videos.map((v) => {
+        const yid = youtubeId(v.youtube_url);
+        return `<div class="guide-video-row">
+          <img src="${yid ? `https://img.youtube.com/vi/${yid}/mqdefault.jpg` : ''}" alt="">
+          <div class="info">
+            <div class="t">${v.title}</div>
+            ${v.description ? `<div class="d">${v.description}</div>` : ''}
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn-outline btn-sm" onclick="openVideoModal(${c.id}, ${v.id})">ערוך</button>
+            <button class="btn-danger-outline btn-sm" onclick="deleteVideo(${v.id})">מחק</button>
+          </div>
+        </div>`;
+      }).join('') : '<div class="empty-state" style="padding:16px 0;">אין עדיין סרטונים בקטגוריה זו</div>'}
+    </div>
+  `).join('');
+}
+
+$('newGuideCategoryBtn').addEventListener('click', () => {
+  renderModal(`
+    <h3>קטגוריה חדשה</h3>
+    <label>שם הקטגוריה</label><input id="mCategoryName" placeholder="לדוגמה: תחילת עבודה">
+    <button class="btn-primary" id="mCreateCategoryBtn">צור קטגוריה</button>
+    <div class="error hidden" id="mCategoryError"></div>
+  `);
+  $('mCreateCategoryBtn').addEventListener('click', async () => {
+    $('mCategoryError').classList.add('hidden');
+    try {
+      await api('/guides/categories', { method: 'POST', body: JSON.stringify({ name: $('mCategoryName').value.trim() }) });
+      closeModal();
+      toast('הקטגוריה נוצרה בהצלחה');
+      loadGuides();
+    } catch (err) {
+      $('mCategoryError').textContent = err.message;
+      $('mCategoryError').classList.remove('hidden');
+    }
+  });
+});
+
+function renameCategory(id, currentName) {
+  renderModal(`
+    <h3>עריכת שם קטגוריה</h3>
+    <label>שם הקטגוריה</label><input id="mRenameCategory" value="${currentName}">
+    <button class="btn-primary" id="mRenameCategoryBtn">שמור</button>
+    <div class="error hidden" id="mRenameCategoryError"></div>
+  `);
+  $('mRenameCategoryBtn').addEventListener('click', async () => {
+    try {
+      await api(`/guides/categories/${id}`, { method: 'PATCH', body: JSON.stringify({ name: $('mRenameCategory').value.trim() }) });
+      closeModal();
+      loadGuides();
+    } catch (err) {
+      $('mRenameCategoryError').textContent = err.message;
+      $('mRenameCategoryError').classList.remove('hidden');
+    }
+  });
+}
+
+async function deleteCategory(id) {
+  if (!confirm('למחוק את הקטגוריה וכל הסרטונים שבתוכה?')) return;
+  try {
+    await api(`/guides/categories/${id}`, { method: 'DELETE' });
+    toast('הקטגוריה נמחקה');
+    loadGuides();
+  } catch (err) { toast('שגיאה: ' + err.message); }
+}
+
+function openVideoModal(categoryId, videoId) {
+  const category = guideCategories.find((c) => c.id === categoryId);
+  const video = videoId ? category.videos.find((v) => v.id === videoId) : null;
+  renderModal(`
+    <h3>${video ? 'עריכת סרטון' : 'סרטון חדש'} — ${category.name}</h3>
+    <label>כותרת</label><input id="mVideoTitle" value="${video?.title || ''}">
+    <label>תיאור קצר</label><textarea id="mVideoDesc">${video?.description || ''}</textarea>
+    <label>קישור יוטיוב</label><input id="mVideoUrl" value="${video?.youtube_url || ''}" placeholder="https://www.youtube.com/watch?v=...">
+    <button class="btn-primary" id="mSaveVideoBtn">${video ? 'שמור שינויים' : 'הוסף סרטון'}</button>
+    <div class="error hidden" id="mVideoError"></div>
+  `);
+  $('mSaveVideoBtn').addEventListener('click', async () => {
+    $('mVideoError').classList.add('hidden');
+    const body = {
+      category_id: categoryId,
+      title: $('mVideoTitle').value.trim(),
+      description: $('mVideoDesc').value.trim(),
+      youtube_url: $('mVideoUrl').value.trim(),
+    };
+    if (!body.title || !body.youtube_url) {
+      $('mVideoError').textContent = 'יש למלא כותרת וקישור יוטיוב';
+      $('mVideoError').classList.remove('hidden');
+      return;
+    }
+    try {
+      if (video) await api(`/guides/videos/${video.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      else await api('/guides/videos', { method: 'POST', body: JSON.stringify(body) });
+      closeModal();
+      toast(video ? 'הסרטון עודכן' : 'הסרטון נוסף בהצלחה');
+      loadGuides();
+    } catch (err) {
+      $('mVideoError').textContent = err.message;
+      $('mVideoError').classList.remove('hidden');
+    }
+  });
+}
+
+async function deleteVideo(id) {
+  if (!confirm('למחוק את הסרטון הזה?')) return;
+  try {
+    await api(`/guides/videos/${id}`, { method: 'DELETE' });
+    toast('הסרטון נמחק');
+    loadGuides();
+  } catch (err) { toast('שגיאה: ' + err.message); }
+}
+
+/* ---- Branding ---- */
+$('uploadBrandingBtn').addEventListener('click', async () => {
+  const file = $('brandingFileInput').files[0];
+  const msg = $('brandingMsg');
+  if (!file) { msg.textContent = 'יש לבחור קובץ תחילה'; return; }
+  msg.textContent = 'מעלה...';
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`/api/branding/owner/logo`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+    msg.textContent = 'הלוגו עודכן בהצלחה בכל המערכות';
+    $('brandingPreview').src = `/api/branding/logo?t=${Date.now()}`;
+    toast('הלוגו עודכן בהצלחה');
+  } catch (err) {
+    msg.textContent = 'שגיאה: ' + err.message;
+  }
+});
+
+/* ---- Changelog ---- */
+const CHANGELOG_CATEGORY_LABEL = { added: '+ הוספה', changed: '~ שינוי', removed: '− הסרה', fixed: '✓ תיקון' };
+let allChangelog = [];
+
+async function loadChangelog() {
+  const wrap = $('changelogList');
+  wrap.innerHTML = '<div class="empty-state">טוען...</div>';
+  try {
+    allChangelog = await api('/changelog');
+    renderChangelogList();
+  } catch (err) {
+    wrap.innerHTML = `<div class="empty-state">שגיאה: ${err.message}</div>`;
+  }
+}
+
+function renderChangelogList() {
+  const wrap = $('changelogList');
+  if (!allChangelog.length) { wrap.innerHTML = '<div class="empty-state">אין עדיין רישומים ביומן.</div>'; return; }
+
+  const days = {};
+  allChangelog.forEach((e) => {
+    const d = new Date(e.released_at);
+    const key = d.toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' });
+    (days[key] = days[key] || []).push(e);
+  });
+
+  wrap.innerHTML = Object.entries(days).map(([day, entries]) => `
+    <div class="changelog-day">
+      <div class="changelog-day-label">${day}</div>
+      ${entries.map((e) => `
+        <div class="changelog-entry" onclick="openChangelogDetail(${e.id})">
+          <span class="changelog-badge ${e.category}">${CHANGELOG_CATEGORY_LABEL[e.category] || e.category}</span>
+          <div class="body">
+            <div class="head">
+              <span class="t">${e.title}</span>
+              <span class="ver">v${e.version}</span>
+            </div>
+            ${e.description ? `<div class="d">${e.description.length > 160 ? e.description.slice(0, 160) + '…' : e.description}</div>` : ''}
+            <div class="time">${new Date(e.released_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}${e.created_by_name ? ` · נרשם ע״י ${e.created_by_name}` : ''}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+function openChangelogDetail(id) {
+  const e = allChangelog.find((x) => x.id === id);
+  if (!e) return;
+  const dt = new Date(e.released_at);
+  renderModal(`
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+      <h3 style="margin-bottom:0;">${e.title}</h3>
+      <span class="changelog-badge ${e.category}">${CHANGELOG_CATEGORY_LABEL[e.category] || e.category}</span>
+    </div>
+    <div class="changelog-detail-meta">
+      <span>גרסה: <b class="mono">${e.version}</b></span>
+      <span>תאריך: <b>${dt.toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' })}</b></span>
+      <span>שעה: <b>${dt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}</b></span>
+      ${e.created_by_name ? `<span>נרשם ע״י: <b>${e.created_by_name}</b></span>` : ''}
+    </div>
+    <div class="changelog-detail">${e.description ? e.description.replace(/</g, '&lt;') : '<span class="cell-muted">אין תיאור מפורט לרישום זה.</span>'}</div>
+    <button class="btn-outline" style="width:auto;margin-top:18px;" onclick="closeModal()">סגור</button>
+  `, true);
+}
+
+/* ---- Notifications ---- */
+let ownerNotifications = [];
+
+async function loadOwnerNotifications() {
+  try {
+    ownerNotifications = await api('/notifications');
+    renderNotifBell();
+  } catch (err) { /* silent — bell just stays at 0 */ }
+}
+
+function renderNotifBell() {
+  const badge = $('notifBadge');
+  if (!badge) return;
+  const unread = ownerNotifications.filter((n) => !n.read).length;
+  badge.textContent = unread;
+  badge.classList.toggle('hidden', !unread);
+}
+
+function notifTimeAgo(iso) {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'עכשיו';
+  if (mins < 60) return `לפני ${mins} דק'`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `לפני ${hours} שע'`;
+  return new Date(iso).toLocaleDateString('he-IL');
+}
+
+function renderNotifListHtml() {
+  if (!ownerNotifications.length) return '<div class="empty-state">אין עדיין התראות</div>';
+  return ownerNotifications.map((n) => `
+    <div class="notif-item ${n.read ? '' : 'unread'}" onclick="handleNotifClick(${n.id}, '${n.link_page || ''}')">
+      <div class="t">${n.title}</div>
+      ${n.body ? `<div class="b">${n.body}</div>` : ''}
+      <div class="time">${notifTimeAgo(n.created_at)}</div>
+    </div>
+  `).join('');
+}
+
+function openNotificationsModal() {
+  renderModal(`
+    <h3>התראות</h3>
+    <div id="notifModalBody">${renderNotifListHtml()}</div>
+    <button class="btn-outline" style="width:100%;margin-top:12px;" onclick="markAllNotifsRead()">סמן הכל כנקרא</button>
+  `, true);
+}
+
+async function handleNotifClick(id, linkPage) {
+  try { await api(`/notifications/${id}/read`, { method: 'PATCH' }); } catch (err) {}
+  const n = ownerNotifications.find((x) => x.id === id);
+  if (n) n.read = true;
+  renderNotifBell();
+  const body = $('notifModalBody');
+  if (body) body.innerHTML = renderNotifListHtml();
+  if (linkPage) {
+    closeModal();
+    goToPage(linkPage);
+  }
+}
+
+async function markAllNotifsRead() {
+  try {
+    await api('/notifications/read-all', { method: 'POST' });
+    ownerNotifications.forEach((n) => (n.read = true));
+    renderNotifBell();
+    const body = $('notifModalBody');
+    if (body) body.innerHTML = renderNotifListHtml();
+    toast('כל ההתראות סומנו כנקראו');
+  } catch (err) { toast('שגיאה: ' + err.message); }
+}
+
+/* ---- modal helper ---- */
+function renderModal(innerHtml, wide) {
+  $('modalRoot').innerHTML = `<div class="modal-backdrop" id="modalBackdrop"><div class="modal${wide ? ' modal-wide' : ''}">${innerHtml}</div></div>`;
+  $('modalBackdrop').addEventListener('click', (e) => { if (e.target.id === 'modalBackdrop') closeModal(); });
+}
+function closeModal() { $('modalRoot').innerHTML = ''; }
+
+boot();
+</script>
+</body>
+</html>
