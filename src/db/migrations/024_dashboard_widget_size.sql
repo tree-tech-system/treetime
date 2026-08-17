@@ -1,0 +1,2 @@
+ALTER TABLE dashboard_widgets ADD COLUMN IF NOT EXISTS width_px INTEGER;
+ALTER TABLE dashboard_widgets ADD COLUMN IF NOT EXISTS height_px INTEGER;

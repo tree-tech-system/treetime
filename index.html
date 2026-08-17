@@ -296,6 +296,12 @@
   .field-row{ display:flex; gap:12px; }
   .field-row .field{ flex:1; }
   .hint{ font-size:11.5px; color:var(--muted); margin-top:4px; }
+  .dashboard-widget{ min-height:60px; }
+  .widget-resize-handle{
+    position:absolute; left:2px; bottom:2px; width:14px; height:14px; cursor:nwse-resize;
+    opacity:.35; border-left:2px solid var(--muted); border-bottom:2px solid var(--muted); border-radius:0 0 0 3px;
+  }
+  .widget-resize-handle:hover{ opacity:.8; }
 
   .checkbox-list{
     border:1px solid var(--border); border-radius:9px; background:#fff;
@@ -1561,6 +1567,58 @@ const KPI_NUMERIC_FIELDS = {
   tasks: [],
 };
 
+const LIST_SOURCE_LABELS = {
+  time_entries: 'דיווחי עבודה', tasks: 'משימות', projects: 'לקוחות',
+  clients_usage: 'מכסת שעות ללקוח', employees_activity: 'פעילות עובדים',
+};
+
+// Available columns per list-widget source: key (stored in config.columns),
+// header label, and how to render one row's value for that column.
+const LIST_SOURCE_COLUMNS = {
+  time_entries: [
+    { key:'date', label:'תאריך', render:e=>`<span class="cell-muted">${fmtDateHe(e.started_at.slice(0,10))}</span>` },
+    { key:'employee', label:'עובד', render:e=>getFreelancer(String(e.employee_id))?.name || '—' },
+    { key:'client', label:'לקוח', render:e=>e.project_id ? clientDisplayName(getClient(String(e.project_id))) : '—' },
+    { key:'hours', label:'שעות', render:e=>`<span class="mono">${e.ended_at ? ((new Date(e.ended_at)-new Date(e.started_at))/3600000).toFixed(1) : '—'}</span>` },
+    { key:'cost', label:'עלות', render:e=>fmtCurrency(e.cost||0) },
+    { key:'description', label:'תיאור', render:e=>e.description || '—' },
+  ],
+  tasks: [
+    { key:'description', label:'תיאור', render:t=>t.description },
+    { key:'employee', label:'עובד', render:t=>t.employee_id ? (getFreelancer(String(t.employee_id))?.name||'—') : '—' },
+    { key:'client', label:'לקוח', render:t=>t.project_id ? clientDisplayName(getClient(String(t.project_id))) : '—' },
+    { key:'status', label:'סטטוס', render:t=>TASK_STATUS_LABEL[t.status]||t.status },
+    { key:'deadline', label:'דדליין', render:t=>`<span class="cell-muted">${t.deadline ? fmtDateHe(t.deadline) : '—'}</span>` },
+  ],
+  projects: [
+    { key:'name', label:'שם', render:p=>clientDisplayName({name:p.name, businessName:p.business_name}) },
+    { key:'phone', label:'טלפון', render:p=>p.contact_phone || '—' },
+    { key:'email', label:'אימייל', render:p=>p.contact_email || '—' },
+    { key:'quota', label:'מכסת שעות', render:p=>p.monthly_quota_hours || '—' },
+    { key:'rate', label:'תעריף לשעה', render:p=>fmtCurrency(p.hourly_rate||0) },
+  ],
+  clients_usage: [
+    { key:'name', label:'לקוח', render:r=>r.name },
+    { key:'quota', label:'מכסה', render:r=>`${r.monthly_quota_hours} ש׳` },
+    { key:'hours', label:'שעות שנוצלו', render:r=>`<span class="mono">${r.hours_logged.toFixed(1)}</span>` },
+    { key:'pct', label:'ניצול', render:r=>{
+        const pct=Math.min(100,r.pct), color=pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--green)';
+        return `<div style="display:flex;align-items:center;gap:6px;"><div class="progress-track" style="width:70px;"><div class="progress-fill" style="width:${pct}%;background:${color};"></div></div><span class="cell-muted" style="font-size:11.5px;">${Math.round(r.pct)}%</span></div>`;
+      } },
+  ],
+  employees_activity: [
+    { key:'name', label:'עובד', render:r=>r.name },
+    { key:'hours', label:'שעות', render:r=>`<span class="mono">${r.hours_logged.toFixed(1)}</span>` },
+    { key:'last_entry', label:'דיווח אחרון', render:r=>{
+        const gap = daysSince(r.last_entry_at ? r.last_entry_at.slice(0,10) : null);
+        if(gap===null) return `<span class="pill pill-gray">אין דיווחים</span>`;
+        if(gap>=7) return `<span class="pill pill-red">לפני ${gap} ימים</span>`;
+        if(gap>=3) return `<span class="pill pill-amber">לפני ${gap} ימים</span>`;
+        return `<span class="pill pill-green">לפני ${gap===0?'היום':gap+' ימים'}</span>`;
+      } },
+  ],
+};
+
 function renderDashboardWidgetsSection(){
   const admin = isAdmin();
   const widgets = state.dashboardWidgets || [];
@@ -1568,12 +1626,12 @@ function renderDashboardWidgetsSection(){
     <div class="panel" style="margin-top:18px;">
       <div class="panel-head">
         <h3>הדשבורד שלי</h3>
-        ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openAddKpiWidgetModal()">${ICON.plus} הוסף KPI</button>` : ''}
+        ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openAddWidgetTypeModal()">${ICON.plus} הוסף דשבורד</button>` : ''}
       </div>
       <div class="panel-pad" style="display:flex; flex-wrap:wrap; gap:12px;">
         ${widgets.length
           ? widgets.map((w,i)=>renderOneDashboardWidget(w,i,widgets.length,admin)).join('')
-          : `<div class="cell-muted">עדיין אין widgets בדשבורד.${admin?' לחץ "הוסף KPI" למעלה, או "שמור תצוגה כ-widget" בעמוד דיווחי עבודה / משימות.':''}</div>`}
+          : `<div class="cell-muted">עדיין אין widgets בדשבורד.${admin?' לחץ "הוסף דשבורד" למעלה, או "שמור תצוגה כ-widget" בעמוד דיווחי עבודה / משימות.':''}</div>`}
       </div>
     </div>
   `;
@@ -1583,6 +1641,10 @@ function openEditKpiWidgetModal(id){
   const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
   if(w) openAddKpiWidgetModal(w);
 }
+function openEditListWidgetModal(id){
+  const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
+  if(w) openAddListWidgetModal(w);
+}
 
 function renderOneDashboardWidget(w, i, total, admin){
   const moveButtons = admin ? `
@@ -1590,11 +1652,13 @@ function renderOneDashboardWidget(w, i, total, admin){
     ${i<total-1?`<button class="icon-btn" title="הזז למטה" onclick="moveDashboardWidget(${w.id},1)">↓</button>`:''}
     <button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>
   ` : '';
+  const resizeHandle = admin ? `<div class="widget-resize-handle" title="גרור לשינוי גודל"></div>` : '';
 
   if(w.type==='kpi'){
     const val = (w.value===null || w.value===undefined) ? '—' : (Number.isInteger(w.value) ? w.value : w.value.toFixed(1));
+    const sizeStyle = (w.width_px?`width:${w.width_px}px; flex:0 0 auto;`:'flex:1 1 220px;') + (w.height_px?`height:${w.height_px}px;`:'');
     return `
-      <div class="panel" style="padding:14px 16px; flex:1 1 220px; min-width:200px;">
+      <div class="panel dashboard-widget" data-widget-id="${w.id}" style="padding:14px 16px; min-width:200px; position:relative; box-sizing:border-box; ${sizeStyle}">
         <div class="cell-muted" style="font-size:12.5px;">${w.title}</div>
         <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
           <div style="font-size:26px; font-weight:800;">${val}</div>
@@ -1603,16 +1667,70 @@ function renderOneDashboardWidget(w, i, total, admin){
             ${moveButtons}
           </div>
         </div>
+        ${resizeHandle}
       </div>`;
   }
+  const sizeStyle = (w.width_px?`width:${w.width_px}px; flex:0 0 auto;`:'flex:1 1 100%;') + (w.height_px?`height:${w.height_px}px; overflow:auto;`:'');
   return `
-    <div class="panel" style="padding:14px 16px; flex:1 1 100%;">
+    <div class="panel dashboard-widget" data-widget-id="${w.id}" style="padding:14px 16px; position:relative; box-sizing:border-box; ${sizeStyle}">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
         <div style="font-weight:700;">${w.title}</div>
-        <div style="display:flex; gap:4px;">${moveButtons}</div>
+        <div style="display:flex; gap:4px;">
+          ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditListWidgetModal(${w.id})">${ICON.edit}</button>`:''}
+          ${moveButtons}
+        </div>
       </div>
       <div id="widgetList-${w.id}" class="cell-muted">טוען...</div>
+      ${resizeHandle}
     </div>`;
+}
+
+function wireDashboardWidgetResize(){
+  document.querySelectorAll('.widget-resize-handle').forEach(handle=>{
+    if(handle.dataset.wired) return;
+    handle.dataset.wired = '1';
+    handle.addEventListener('mousedown', onWidgetResizeStart);
+  });
+}
+
+let resizingWidget = null;
+function onWidgetResizeStart(e){
+  e.preventDefault();
+  const el = e.target.closest('.dashboard-widget');
+  if(!el) return;
+  resizingWidget = {
+    el, id: Number(el.dataset.widgetId),
+    startX: e.clientX, startY: e.clientY,
+    startW: el.offsetWidth, startH: el.offsetHeight,
+  };
+  document.addEventListener('mousemove', onWidgetResizeMove);
+  document.addEventListener('mouseup', onWidgetResizeEnd);
+}
+function onWidgetResizeMove(e){
+  if(!resizingWidget) return;
+  const dx = e.clientX - resizingWidget.startX;
+  const dy = e.clientY - resizingWidget.startY;
+  const dir = document.documentElement.dir === 'rtl' || getComputedStyle(document.body).direction === 'rtl' ? -1 : 1;
+  const w = Math.max(200, resizingWidget.startW + dir*dx);
+  const h = Math.max(60, resizingWidget.startH + dy);
+  resizingWidget.el.style.width = w+'px';
+  resizingWidget.el.style.height = h+'px';
+  resizingWidget.el.style.flex = '0 0 auto';
+  resizingWidget.width = Math.round(w);
+  resizingWidget.height = Math.round(h);
+}
+async function onWidgetResizeEnd(){
+  document.removeEventListener('mousemove', onWidgetResizeMove);
+  document.removeEventListener('mouseup', onWidgetResizeEnd);
+  if(!resizingWidget) return;
+  const { id, width, height } = resizingWidget;
+  resizingWidget = null;
+  if(!width || !height) return;
+  try{
+    await apiCall(`/dashboard-widgets/${id}`, { method:'PATCH', body: JSON.stringify({ width_px: width, height_px: height }) });
+    const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
+    if(w){ w.width_px = width; w.height_px = height; }
+  }catch(err){ toast('שגיאה בשמירת גודל: '+err.message); }
 }
 
 async function renderDashboardWidgetLists(){
@@ -1622,7 +1740,7 @@ async function renderDashboardWidgetLists(){
     if(!wrap) continue;
     try{
       const rows = await fetchListWidgetRows(w.config);
-      wrap.innerHTML = renderListWidgetRows(w.config.source, rows);
+      wrap.innerHTML = renderListWidgetRows(w.config.source, rows, w.config.columns);
     }catch(err){
       wrap.innerHTML = `<span style="color:var(--red);">שגיאה בטעינה: ${err.message}</span>`;
     }
@@ -1660,55 +1778,26 @@ async function fetchListWidgetRows(config){
     const rows = await apiCall(`${path}?${qs.toString()}`);
     return rows.slice(0,10);
   }
+  if(config.source==='projects'){
+    const rows = await apiCall('/projects');
+    return rows.slice(0,10);
+  }
   return [];
 }
 
-function renderListWidgetRows(source, rows){
+// Generic, column-driven table renderer shared by every list-widget source.
+// selectedColumns is an array of column keys (config.columns); falls back to
+// all available columns for that source when not set (older saved widgets).
+function renderListWidgetRows(source, rows, selectedColumns){
+  const allColumns = LIST_SOURCE_COLUMNS[source] || [];
+  const columns = (selectedColumns && selectedColumns.length)
+    ? allColumns.filter(c=>selectedColumns.includes(c.key))
+    : allColumns;
+  if(!columns.length) return '<span class="cell-muted">אין עמודות להצגה</span>';
   if(!rows.length) return '<span class="cell-muted">אין תוצאות עבור הסינון הזה</span>';
-  if(source==='time_entries'){
-    return `<table><thead><tr><th>תאריך</th><th>עובד</th><th>לקוח</th><th>שעות</th></tr></thead><tbody>
-      ${rows.map(e=>{
-        const f=getFreelancer(String(e.employee_id)), c=e.project_id?getClient(String(e.project_id)):null;
-        const hrs = e.ended_at ? ((new Date(e.ended_at)-new Date(e.started_at))/3600000).toFixed(1) : '—';
-        return `<tr><td class="cell-muted">${fmtDateHe(e.started_at.slice(0,10))}</td><td>${f?.name||'—'}</td><td>${c?clientDisplayName(c):'—'}</td><td class="mono">${hrs}</td></tr>`;
-      }).join('')}
-    </tbody></table>`;
-  }
-  if(source==='tasks'){
-    return `<table><thead><tr><th>תיאור</th><th>עובד</th><th>סטטוס</th><th>דדליין</th></tr></thead><tbody>
-      ${rows.map(t=>{
-        const f=t.employee_id?getFreelancer(String(t.employee_id)):null;
-        return `<tr><td>${t.description}</td><td>${f?.name||'—'}</td><td>${TASK_STATUS_LABEL[t.status]||t.status}</td><td class="cell-muted">${t.deadline?fmtDateHe(t.deadline):'—'}</td></tr>`;
-      }).join('')}
-    </tbody></table>`;
-  }
-  if(source==='clients_usage'){
-    return rows.map(r=>{
-      const pct = Math.min(100, r.pct);
-      const color = pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--green)';
-      return `<div style="margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;">
-          <span style="font-weight:700;">${r.name}</span>
-          <span class="cell-muted">${r.hours_logged.toFixed(1)} / ${r.monthly_quota_hours} ש׳</span>
-        </div>
-        <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${color};"></div></div>
-      </div>`;
-    }).join('');
-  }
-  if(source==='employees_activity'){
-    return `<table><thead><tr><th>עובד</th><th>שעות</th><th>דיווח אחרון</th></tr></thead><tbody>
-      ${rows.map(r=>{
-        const gap = daysSince(r.last_entry_at ? r.last_entry_at.slice(0,10) : null);
-        let gapPill;
-        if(gap===null) gapPill = `<span class="pill pill-gray">אין דיווחים</span>`;
-        else if(gap>=7) gapPill = `<span class="pill pill-red">לפני ${gap} ימים</span>`;
-        else if(gap>=3) gapPill = `<span class="pill pill-amber">לפני ${gap} ימים</span>`;
-        else gapPill = `<span class="pill pill-green">לפני ${gap===0?'היום':gap+' ימים'}</span>`;
-        return `<tr><td>${r.name}</td><td class="mono">${r.hours_logged.toFixed(1)} ש׳</td><td>${gapPill}</td></tr>`;
-      }).join('')}
-    </tbody></table>`;
-  }
-  return '';
+  return `<table><thead><tr>${columns.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead><tbody>
+    ${rows.map(row=>`<tr>${columns.map(c=>`<td>${c.render(row)}</td>`).join('')}</tr>`).join('')}
+  </tbody></table>`;
 }
 
 let pendingListWidgetSource = null;
@@ -1744,6 +1833,169 @@ async function saveListWidget(){
 }
 
 let editingWidgetId = null;
+
+// Step 1: pick a widget type, then "שלב הבא" opens the matching step-2 builder.
+function openAddWidgetTypeModal(){
+  openModal(`
+    <div class="modal-head"><h3>הוסף דשבורד</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div class="hint" style="margin-bottom:14px;">איזה סוג דשבורד תרצה להוסיף?</div>
+      <div style="display:flex; gap:12px;">
+        <div class="panel widget-type-choice" data-type="kpi" onclick="selectWidgetType('kpi')" style="flex:1; padding:18px; text-align:center; cursor:pointer; border:2px solid var(--border);">
+          <div style="font-size:28px; margin-bottom:8px;">🔢</div>
+          <div style="font-weight:700;">דשבורד KPI</div>
+          <div class="hint" style="margin-top:4px;">מספר יחיד — סכום, ממוצע, ספירה...</div>
+        </div>
+        <div class="panel widget-type-choice" data-type="list" onclick="selectWidgetType('list')" style="flex:1; padding:18px; text-align:center; cursor:pointer; border:2px solid var(--border);">
+          <div style="font-size:28px; margin-bottom:8px;">📋</div>
+          <div style="font-weight:700;">דשבורד רשימה</div>
+          <div class="hint" style="margin-top:4px;">טבלה ממוינת עם העמודות שתבחר</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" id="widgetTypeNextBtn" disabled onclick="goToWidgetTypeStep2()">שלב הבא</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+    </div>
+  `);
+}
+
+let selectedWidgetType = null;
+function selectWidgetType(type){
+  selectedWidgetType = type;
+  document.querySelectorAll('.widget-type-choice').forEach(el=>{
+    el.style.borderColor = el.dataset.type===type ? 'var(--green)' : 'var(--border)';
+    el.style.background = el.dataset.type===type ? 'var(--green-soft)' : '';
+  });
+  document.getElementById('widgetTypeNextBtn').disabled = false;
+}
+function goToWidgetTypeStep2(){
+  if(selectedWidgetType==='kpi') openAddKpiWidgetModal();
+  else if(selectedWidgetType==='list') openAddListWidgetModal();
+}
+
+// Step 2 for list widgets: area/source, columns to show, filters, preview, save.
+function openAddListWidgetModal(existingWidget){
+  editingWidgetId = existingWidget ? existingWidget.id : null;
+  const cfg = existingWidget ? existingWidget.config : null;
+  openModal(`
+    <div class="modal-head"><h3>${existingWidget?'עריכת':'הוסף'} דשבורד רשימה</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>כותרת</label><input type="text" id="listTitle" placeholder="לדוגמה: דיווחים אחרונים" value="${existingWidget?existingWidget.title.replace(/"/g,'&quot;'):''}"></div>
+      <div class="field">
+        <label>לאיזה אזור במערכת זה מקושר</label>
+        <select id="listSource" onchange="onListSourceChange()">
+          ${Object.entries(LIST_SOURCE_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="hint" style="margin:10px 0 4px;">אילו עמודות יופיעו:</div>
+      <div id="listColumnsWrap" style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:10px;"></div>
+
+      <div class="hint" style="margin:10px 0 4px;">סינון (הכל אופציונלי):</div>
+      <div class="field-row">
+        <div class="field"><label>מתאריך</label><input type="date" id="listFrom"></div>
+        <div class="field"><label>עד תאריך</label><input type="date" id="listTo"></div>
+      </div>
+      <div class="field-row" data-list-source-only="time_entries,tasks">
+        <div class="field">
+          <label>עובד</label>
+          <select id="listEmployee"><option value="">הכל</option>${state.freelancers.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}</select>
+        </div>
+        <div class="field">
+          <label>לקוח</label>
+          <select id="listProject"><option value="">הכל</option>${state.clients.map(c=>`<option value="${c.id}">${clientDisplayName(c)}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="field" data-list-source-only="time_entries">
+        <label>מצב</label>
+        <select id="listTimeEntryStatus"><option value="">הכל</option><option value="open">פתוחים בלבד</option><option value="completed">הושלמו בלבד</option></select>
+      </div>
+      <div class="field" data-list-source-only="tasks">
+        <label>סטטוס משימה</label>
+        <select id="listStatus"><option value="">הכל</option>${Object.entries(TASK_STATUS_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+      </div>
+
+      <div class="hint" id="listPreviewResult" style="margin-top:14px;"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="previewListWidget()">בדוק תצוגה מקדימה</button>
+      <button class="btn btn-primary" onclick="saveListWidgetFromWizard()">${ICON.check} שמור ל-דשבורד</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+    </div>
+  `);
+  if(cfg) document.getElementById('listSource').value = cfg.source;
+  onListSourceChange();
+  if(cfg){
+    const f = cfg.filters || {};
+    if(f.date_from) document.getElementById('listFrom').value = f.date_from;
+    if(f.date_to) document.getElementById('listTo').value = f.date_to;
+    if(f.employee_id && document.getElementById('listEmployee')) document.getElementById('listEmployee').value = f.employee_id;
+    if(f.project_id && document.getElementById('listProject')) document.getElementById('listProject').value = f.project_id;
+    if(f.status && document.getElementById('listTimeEntryStatus')) document.getElementById('listTimeEntryStatus').value = f.status;
+    if(f.status && document.getElementById('listStatus')) document.getElementById('listStatus').value = f.status;
+  }
+}
+
+function onListSourceChange(){
+  const source = document.getElementById('listSource').value;
+  document.querySelectorAll('[data-list-source-only]').forEach(el=>{
+    const allowed = el.dataset.listSourceOnly.split(',');
+    el.style.display = allowed.includes(source) ? '' : 'none';
+  });
+  const columns = LIST_SOURCE_COLUMNS[source] || [];
+  const selected = editingWidgetId ? (((state.dashboardWidgets||[]).find(x=>x.id===editingWidgetId)||{}).config?.columns) : null;
+  document.getElementById('listColumnsWrap').innerHTML = columns.map(c=>`
+    <label style="display:flex; align-items:center; gap:5px; font-size:13px; cursor:pointer;">
+      <input type="checkbox" class="list-column-cb" value="${c.key}" ${(!selected || selected.includes(c.key)) ? 'checked' : ''}> ${c.label}
+    </label>`).join('');
+}
+
+function collectListConfig(){
+  const source = document.getElementById('listSource').value;
+  const columns = Array.from(document.querySelectorAll('.list-column-cb:checked')).map(el=>el.value);
+  const filters = {};
+  const from = document.getElementById('listFrom').value; if(from) filters.date_from = from;
+  const to = document.getElementById('listTo').value; if(to) filters.date_to = to;
+  if(['time_entries','tasks'].includes(source)){
+    const emp = document.getElementById('listEmployee').value; if(emp) filters.employee_id = emp;
+    const proj = document.getElementById('listProject').value; if(proj) filters.project_id = proj;
+  }
+  if(source==='time_entries'){
+    const status = document.getElementById('listTimeEntryStatus').value; if(status) filters.status = status;
+  }
+  if(source==='tasks'){
+    const status = document.getElementById('listStatus').value; if(status) filters.status = status;
+  }
+  return { source, columns, filters };
+}
+
+async function previewListWidget(){
+  const resultEl = document.getElementById('listPreviewResult');
+  resultEl.textContent = 'טוען...';
+  try{
+    const config = collectListConfig();
+    const rows = await fetchListWidgetRows(config);
+    resultEl.innerHTML = renderListWidgetRows(config.source, rows, config.columns);
+  }catch(err){ resultEl.textContent = 'שגיאה: '+err.message; }
+}
+
+async function saveListWidgetFromWizard(){
+  const title = document.getElementById('listTitle').value.trim();
+  if(!title){ toast('צריך כותרת ל-widget'); return; }
+  try{
+    const config = collectListConfig();
+    if(editingWidgetId){
+      await apiCall(`/dashboard-widgets/${editingWidgetId}`, { method:'PATCH', body: JSON.stringify({ title, config }) });
+    } else {
+      await apiCall('/dashboard-widgets', { method:'POST', body: JSON.stringify({ type:'list', title, config }) });
+    }
+    closeModal();
+    toast(editingWidgetId ? 'העדכון נשמר' : 'נוסף לדשבורד');
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
 
 function openAddKpiWidgetModal(existingWidget){
   editingWidgetId = existingWidget ? existingWidget.id : null;
@@ -4358,6 +4610,7 @@ function renderAll(){
   if(activePage==='dashboard' && isAdmin()){
     renderTimerLists();
     renderDashboardWidgetLists();
+    wireDashboardWidgetResize();
   }
   if(activePage==='reports'){
     bindReportFilters();

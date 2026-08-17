@@ -219,7 +219,7 @@ router.get('/:id/value', async (req, res) => {
  *       204: { description: Removed }
  */
 router.patch('/:id', requireRole('admin'), async (req, res) => {
-  const { title, position, config } = req.body;
+  const { title, position, config, width_px, height_px } = req.body;
   const existing = await pool.query('SELECT type FROM dashboard_widgets WHERE id = $1 AND company_id = $2', [req.params.id, companyIdOf(req)]);
   if (!existing.rows[0]) return res.status(404).json({ error: 'not_found' });
 
@@ -232,10 +232,14 @@ router.patch('/:id', requireRole('admin'), async (req, res) => {
     }
   }
 
+  const w = Number.isFinite(width_px) && width_px > 0 ? Math.round(width_px) : null;
+  const h = Number.isFinite(height_px) && height_px > 0 ? Math.round(height_px) : null;
+
   const { rows } = await pool.query(
-    `UPDATE dashboard_widgets SET title = COALESCE($1, title), position = COALESCE($2, position), config = COALESCE($3, config)
+    `UPDATE dashboard_widgets SET title = COALESCE($1, title), position = COALESCE($2, position),
+       config = COALESCE($3, config), width_px = COALESCE($6, width_px), height_px = COALESCE($7, height_px)
      WHERE id = $4 AND company_id = $5 RETURNING *`,
-    [title || null, position ?? null, config || null, req.params.id, companyIdOf(req)]
+    [title || null, position ?? null, config || null, req.params.id, companyIdOf(req), w, h]
   );
   res.json(rows[0]);
 });
