@@ -1,0 +1,30 @@
+name: Deploy backend to Hostinger
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/treetime-api
+            git fetch origin main
+            git reset --hard origin/main
+            npm install --omit=dev
+            sudo systemctl restart treetime-api
+            sleep 2
+            sudo systemctl is-active --quiet treetime-api
