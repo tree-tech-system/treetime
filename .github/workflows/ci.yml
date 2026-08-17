@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  backend-syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Syntax-check all backend JS files
+        run: |
+          set -e
+          fail=0
+          for f in $(find src scripts -name '*.js'); do
+            node -c "$f" || fail=1
+          done
+          exit $fail
+      - name: Verify package.json / package-lock.json are installable
+        run: npm ci

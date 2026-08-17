@@ -15,6 +15,15 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e
             cd ${{ secrets.DEPLOY_PATH }}
             git fetch origin main
             git reset --hard origin/main
+            # This repo is a monorepo (frontend at root + backend under src/).
+            # Only the actual static site belongs in the public web root — keep
+            # backend source (src/, scripts/, package*.json, etc.) out of it.
+            find . -mindepth 1 -maxdepth 1 \
+              ! -name .git ! -name index.html ! -name admin-invite \
+              ! -name intake ! -name join ! -name owner ! -name signup \
+              ! -name .well-known \
+              -exec rm -rf {} +
