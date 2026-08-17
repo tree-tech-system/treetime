@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
+const { seedDefaultWidgets } = require('../lib/defaultWidgets');
 
 const router = express.Router();
 
@@ -81,6 +82,8 @@ router.post(
         [admin_full_name, admin_email, password_hash, company.id]
       );
       const employee = employeeRes.rows[0];
+
+      await seedDefaultWidgets(client, company.id);
 
       await client.query('COMMIT');
       res.status(201).json({

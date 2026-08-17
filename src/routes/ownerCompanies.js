@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireOwner, requireOwnerScope } = require('../middleware/auth');
 const { generateSlug } = require('../lib/slug');
+const { seedDefaultWidgets } = require('../lib/defaultWidgets');
 
 async function uniqueSlug(client) {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -142,6 +143,8 @@ router.post(
          VALUES ($1,$2,$3,'admin',$4) RETURNING id, full_name, email, role`,
         [admin_full_name, admin_email, password_hash, company.id]
       );
+
+      await seedDefaultWidgets(client, company.id);
 
       await client.query('COMMIT');
       res.status(201).json({ company, admin: employeeRes.rows[0] });
