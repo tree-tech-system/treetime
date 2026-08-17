@@ -141,6 +141,22 @@
   }
   .user-switch select option{ color:#111; }
 
+  /* ---------- ALTERNATE LAYOUT: TOP BAR INSTEAD OF SIDE SIDEBAR ---------- */
+  body.nav-top .app{ flex-direction:column; }
+  body.nav-top .sidebar{
+    width:100%; flex-direction:row; flex-wrap:wrap; align-items:center;
+    padding:12px 24px; gap:20px;
+  }
+  body.nav-top .brand{ border-bottom:none; padding:0; margin-bottom:0; }
+  body.nav-top .global-timer-widget{
+    flex-direction:row; flex-wrap:wrap; border-bottom:none; padding-bottom:0; margin-bottom:0; width:auto;
+  }
+  body.nav-top .global-timer-widget .fab-start{ width:auto; }
+  body.nav-top .global-timer-widget .mini-timer-card{ width:auto; }
+  body.nav-top .notif-bell-btn{ width:auto; margin-bottom:0; }
+  body.nav-top .nav{ flex-direction:row; flex-wrap:wrap; flex:1; }
+  body.nav-top .main{ margin:0 auto; width:100%; }
+
   .main{ flex:1; padding:26px 34px 60px; max-width:1360px; }
   .page-head{ display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:22px; gap:16px; flex-wrap:wrap;}
   .page-head h1{ font-size:24px; font-weight:700; }
@@ -947,6 +963,7 @@ async function refreshData(){
 }
 
 async function boot(){
+  applyStoredNavLayout();
   try{
     const me = await apiCall('/auth/me');
     state.currentUserId = String(me.id);
@@ -1368,6 +1385,52 @@ function renderUserSwitch(){
   const wrap = document.getElementById('userSwitchWrap');
   if(!wrap) return;
   wrap.innerHTML = '';
+}
+
+/* ---------------------------- NAV LAYOUT PREFERENCE (per-device, not synced) ---------------------------- */
+const NAV_LAYOUT_KEY = 'tt_nav_layout';
+function applyStoredNavLayout(){
+  const mode = localStorage.getItem(NAV_LAYOUT_KEY) || 'sidebar';
+  document.body.classList.toggle('nav-top', mode === 'topbar');
+}
+function setNavLayout(mode){
+  localStorage.setItem(NAV_LAYOUT_KEY, mode);
+  applyStoredNavLayout();
+  renderAll();
+}
+function renderNavLayoutPicker(wrapped){
+  const mode = localStorage.getItem(NAV_LAYOUT_KEY) || 'sidebar';
+  const card = (key, title, desc) => `
+    <div onclick="setNavLayout('${key}')" style="flex:1; min-width:200px; padding:16px; text-align:center; cursor:pointer;
+      border:2px solid ${mode===key?'var(--green)':'var(--border)'}; border-radius:var(--radius);
+      background:${mode===key?'var(--green-soft)':'var(--panel)'};">
+      <div style="font-weight:700; margin-bottom:4px;">${title}</div>
+      <div class="hint">${desc}</div>
+    </div>`;
+  const inner = `
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      ${card('sidebar', 'סרגל צד', 'כמו המצב הקיים — התפריט בצד המסך')}
+      ${card('topbar', 'סרגל עליון', 'שורה עליונה עם כל אפשרויות התפריט אחת ליד השניה')}
+    </div>
+  `;
+  if(wrapped===false){
+    return `
+      <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--border);">
+        <div style="font-weight:700; margin-bottom:4px;">תצוגת תפריט</div>
+        <div class="hint" style="margin-bottom:12px;">איך תרצה שהתפריט הראשי יוצג עבורך?</div>
+        ${inner}
+      </div>
+    `;
+  }
+  return `
+    <div class="panel" style="margin-top:14px;">
+      <div class="panel-head"><h3>תצוגת תפריט</h3></div>
+      <div class="panel-pad">
+        <div class="hint" style="margin-bottom:12px;">איך תרצה שהתפריט הראשי יוצג עבורך?</div>
+        ${inner}
+      </div>
+    </div>
+  `;
 }
 
 function openChangePasswordModal(){
@@ -4401,6 +4464,7 @@ function renderMyAccountPage(){
         <button class="btn btn-ghost" onclick="logout()">התנתקות</button>
       </div>
     </div>
+    ${renderNavLayoutPicker()}
   `;
 }
 
@@ -4439,6 +4503,7 @@ function renderSettingsCategoryBody(catId){
         <button class="btn btn-ghost" onclick="openChangePasswordModal()">שינוי סיסמה</button>
         <button class="btn btn-ghost" onclick="logout()">התנתקות</button>
       </div>
+      ${renderNavLayoutPicker(false)}
     `;
   }
   if(catId==='notifications') return renderNotificationSettingsPanel();
