@@ -25,6 +25,35 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             npm install --omit=dev
+
+            # Auto-apply any migration files not yet recorded in schema_migrations.
+            # That table (020_schema_migrations.sql) only exists once the one-time
+            # bootstrap in CLAUDE.md has been run by hand; until then this safely
+            # no-ops and migrations still need to be applied manually as before.
+            tracking_exists=$(sudo -u postgres psql treetime -tAc \
+              "SELECT 1 FROM information_schema.tables WHERE table_name = 'schema_migrations'")
+            if [ "$tracking_exists" = "1" ]; then
+              for f in $(ls src/db/migrations/*.sql | sort); do
+                name=$(basename "$f")
+                already=$(sudo -u postgres psql treetime -tAc \
+                  "SELECT 1 FROM schema_migrations WHERE filename = '$name'")
+                if [ "$already" != "1" ]; then
+                  echo "Applying new migration: $name"
+                  sudo -u postgres psql treetime -v ON_ERROR_STOP=1 -1 -f "$f"
+                  sudo -u postgres psql treetime -c \
+                    "INSERT INTO schema_migrations (filename) VALUES ('$name') ON CONFLICT DO NOTHING;"
+                  # Blanket re-grant instead of per-table: whatever the migration just
+                  # created or altered, treetime_app keeps working. This is what the
+                  # "GRANT after migration" pitfall in CLAUDE.md should have been all along.
+                  sudo -u postgres psql treetime -c \
+                    "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO treetime_app;
+                     GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;"
+                fi
+              done
+            else
+              echo "schema_migrations table not found yet -- skipping auto-migration (see CLAUDE.md bootstrap step)."
+            fi
+
             sudo systemctl restart treetime-api
             sleep 2
             sudo systemctl is-active --quiet treetime-api
