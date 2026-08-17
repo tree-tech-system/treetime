@@ -901,7 +901,10 @@ async function refreshData(){
     apiCall('/tickets'),
     apiCall('/notifications'),
     apiCall('/tasks'),
-    apiCall('/dashboard-widgets'),
+    // Frontend and backend deploy as two independent, unsynchronized CI jobs, so there's
+    // a brief window right after a push where this endpoint (or its migration) might not
+    // exist on the server yet. Isolate it so that window can't break login for everyone.
+    apiCall('/dashboard-widgets').catch(() => []),
   ]);
   state.freelancers = employees.map(mapFreelancer);
   state.clients = projects.map(mapClient);
