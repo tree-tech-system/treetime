@@ -272,7 +272,13 @@
       <div class="card">
         <h3 style="margin-bottom:14px;">פרטי כניסה — אדמין ראשי</h3>
         <div class="field-row">
-          <div><label>שם משתמש (אימייל)</label><input id="adminUsername" readonly></div>
+          <div style="grid-column:1/-1;">
+            <label>שם משתמש (אימייל)</label>
+            <div style="display:flex;gap:8px;">
+              <input id="adminUsername">
+              <button class="btn-outline btn-sm" id="saveAdminEmailBtn" style="white-space:nowrap;">שמור אימייל</button>
+            </div>
+          </div>
           <div style="grid-column:span 2;">
             <label>סיסמה</label>
             <div style="display:flex;gap:8px;">
@@ -284,7 +290,7 @@
             <button class="btn-outline btn-sm" id="resetAdminPasswordBtn" style="width:100%;">אפס סיסמה</button>
           </div>
         </div>
-        <div class="hint" style="margin-top:8px;">מסיבות אבטחה לא ניתן לשלוף סיסמה קיימת — ניתן רק לקבוע סיסמה חדשה ולהעתיק אותה מכאן.</div>
+        <div class="hint" style="margin-top:8px;">מסיבות אבטחה לא ניתן לשלוף סיסמה קיימת — ניתן רק לקבוע סיסמה חדשה ולהעתיק אותה מכאן. שינוי אימייל משנה את שם המשתמש שאיתו האדמין מתחבר.</div>
       </div>
 
       <div class="card">
@@ -855,8 +861,10 @@ async function openCompany(id) {
 
     currentPrimaryAdmin = data.employees.find((e) => e.role === 'admin' && e.active) || data.employees.find((e) => e.role === 'admin') || null;
     $('adminUsername').value = currentPrimaryAdmin ? currentPrimaryAdmin.email : 'אין אדמין בחברה זו';
+    $('adminUsername').disabled = !currentPrimaryAdmin;
     $('adminPasswordDisplay').value = '';
     $('resetAdminPasswordBtn').disabled = !currentPrimaryAdmin;
+    $('saveAdminEmailBtn').disabled = !currentPrimaryAdmin;
 
     const statsRes = await api('/companies');
     const stat = statsRes.find((x) => String(x.id) === String(id)) || {};
@@ -961,6 +969,24 @@ function generateRandomPassword() {
   for (let i = 0; i < 12; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
 }
+
+$('saveAdminEmailBtn').addEventListener('click', async () => {
+  if (!currentPrimaryAdmin) return;
+  const newEmail = $('adminUsername').value.trim();
+  if (!newEmail || newEmail === currentPrimaryAdmin.email) return;
+  if (!confirm(`לשנות את שם המשתמש (אימייל ההתחברות) של ${currentPrimaryAdmin.email} ל-${newEmail}?`)) return;
+  try {
+    const updated = await api(`/companies/${currentCompanyId}/employees/${currentPrimaryAdmin.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ email: newEmail }),
+    });
+    currentPrimaryAdmin = { ...currentPrimaryAdmin, email: updated.email };
+    toast('שם המשתמש עודכן בהצלחה');
+  } catch (err) {
+    $('adminUsername').value = currentPrimaryAdmin.email;
+    toast('שגיאה: ' + err.message);
+  }
+});
 
 $('resetAdminPasswordBtn').addEventListener('click', async () => {
   if (!currentPrimaryAdmin) return;

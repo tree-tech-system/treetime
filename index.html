@@ -1404,6 +1404,41 @@ async function submitChangePassword(){
   }
 }
 
+function openChangeEmailModal(){
+  const me = getFreelancer(state.currentUserId);
+  openModal(`
+    <div class="modal-head"><h3>שינוי אימייל להתחברות</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div class="hint" style="margin-bottom:12px;">האימייל הנוכחי: ${me?.email||'—'}</div>
+      <div class="field"><label>אימייל חדש</label><input type="email" id="ceNew" autocomplete="username"></div>
+      <div class="field"><label>סיסמה נוכחית (לאימות)</label><input type="password" id="cePassword" autocomplete="current-password"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" onclick="submitChangeEmail()">${ICON.check} שנה אימייל</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+    </div>
+    <div class="error hidden" id="ceError" style="color:var(--red);font-size:13px;padding:0 20px 14px;"></div>
+  `);
+}
+
+async function submitChangeEmail(){
+  const new_email = document.getElementById('ceNew').value.trim();
+  const current_password = document.getElementById('cePassword').value;
+  const errEl = document.getElementById('ceError');
+  errEl.classList.add('hidden');
+  if(!new_email){ errEl.textContent = 'יש להזין אימייל חדש'; errEl.classList.remove('hidden'); return; }
+  try{
+    await apiCall('/auth/change-email', { method:'POST', body: JSON.stringify({ current_password, new_email }) });
+    closeModal();
+    toast('האימייל שונה בהצלחה — יש להשתמש בו בכניסה הבאה');
+    await refreshData();
+    renderAll();
+  }catch(err){
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
 /* ---------------------------- MODAL ---------------------------- */
 function openModal(html, wide){
   const box = document.getElementById('modalBox');
@@ -4361,6 +4396,7 @@ function renderMyAccountPage(){
         <div class="sub">${me?.email?`${me.email}`:''}${shortId?` · מזהה: ${shortId}`:''}</div>
       </div>
       <div class="panel-pad" style="display:flex; gap:10px;">
+        <button class="btn btn-ghost" onclick="openChangeEmailModal()">שינוי אימייל</button>
         <button class="btn btn-ghost" onclick="openChangePasswordModal()">שינוי סיסמה</button>
         <button class="btn btn-ghost" onclick="logout()">התנתקות</button>
       </div>
@@ -4399,6 +4435,7 @@ function renderSettingsCategoryBody(catId){
     return `
       <div class="sub" style="margin-bottom:12px;">${me?.name||'—'}${me?.email?` · ${me.email}`:''}${shortId?` · מזהה: ${shortId}`:''}</div>
       <div style="display:flex; gap:10px;">
+        <button class="btn btn-ghost" onclick="openChangeEmailModal()">שינוי אימייל</button>
         <button class="btn btn-ghost" onclick="openChangePasswordModal()">שינוי סיסמה</button>
         <button class="btn btn-ghost" onclick="logout()">התנתקות</button>
       </div>

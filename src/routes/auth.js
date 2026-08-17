@@ -5,7 +5,7 @@ const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
 const { consumeAuthToken } = require('../lib/authTokens');
-const { sendWelcomeEmail, sendPasswordResetEmail, sendPasswordChangedEmail } = require('../lib/authEmails');
+const { sendWelcomeEmail, sendPasswordResetEmail, sendPasswordChangedEmail, sendEmailChangedEmail } = require('../lib/authEmails');
 
 const router = express.Router();
 
@@ -170,6 +170,57 @@ router.post(
     await pool.query('UPDATE employees SET password_hash = $1 WHERE id = $2', [password_hash, employee.id]);
     sendPasswordChangedEmail(employee).catch(() => {});
     res.json({ ok: true });
+  }
+);
+
+/**
+ * @openapi
+ * /api/auth/change-email:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Change your own login email (any logged-in employee, any role)
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [current_password, new_email]
+ *             properties:
+ *               current_password: { type: string }
+ *               new_email: { type: string, format: email }
+ *     responses:
+ *       200: { description: Email changed }
+ *       401: { description: Current password is incorrect }
+ *       409: { description: Email already in use by another account }
+ */
+router.post(
+  '/change-email',
+  authenticate,
+  body('current_password').isString(),
+  body('new_email').isEmail().normalizeEmail(),
+  async (req, res) => {
+    if (req.auth.type !== 'user') return res.status(403).json({ error: 'forbidden' });
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'validation_error', details: errors.array() });
+
+    const { rows } = await pool.query('SELECT * FROM employees WHERE id = $1', [req.auth.employeeId]);
+    const employee = rows[0];
+    if (!employee || !(await bcrypt.compare(req.body.current_password, employee.password_hash))) {
+      return res.status(401).json({ error: 'invalid_current_password', message: 'הסיסמה הנוכחית שגויה.' });
+    }
+    const oldEmail = employee.email;
+    try {
+      const updated = await pool.query(
+        'UPDATE employees SET email = $1 WHERE id = $2 RETURNING id, full_name, email, role',
+        [req.body.new_email, employee.id]
+      );
+      sendEmailChangedEmail(oldEmail, req.body.new_email).catch(() => {});
+      res.json(updated.rows[0]);
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ error: 'email_taken', message: 'האימייל הזה כבר בשימוש בחשבון אחר.' });
+      throw err;
+    }
   }
 );
 

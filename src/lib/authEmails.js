@@ -33,4 +33,11 @@ async function sendPasswordChangedEmail(employee) {
   await sendMail({ to: employee.email, subject: 'הסיסמה שלך ב-TreeTime עודכנה', html: renderEmail('הסיסמה עודכנה', body) });
 }
 
-module.exports = { sendWelcomeEmail, sendPasswordResetEmail, sendPasswordChangedEmail };
+// Sent to the OLD address so a real account owner notices if this wasn't them.
+async function sendEmailChangedEmail(oldEmail, newEmail) {
+  const body = `כתובת האימייל להתחברות של החשבון שלך ב-TreeTime שונתה מ-<b>${oldEmail}</b> ל-<b>${newEmail}</b>.<br><br>
+    <span style="color:#6B7568;font-size:12.5px;">אם לא ביצעת את השינוי הזה, צרו איתנו קשר מיד.</span>`;
+  await sendMail({ to: oldEmail, subject: 'כתובת האימייל שלך ב-TreeTime שונתה', html: renderEmail('כתובת האימייל שונתה', body) });
+}
+
+module.exports = { sendWelcomeEmail, sendPasswordResetEmail, sendPasswordChangedEmail, sendEmailChangedEmail };
