@@ -1,10 +1,10 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
-const { authenticate, requireOwner } = require('../middleware/auth');
+const { authenticate, requireOwner, requireOwnerScope } = require('../middleware/auth');
 
 const router = express.Router();
-router.use(authenticate, requireOwner);
+router.use(authenticate);
 
 const CATEGORIES = ['added', 'changed', 'removed', 'fixed'];
 
@@ -36,7 +36,7 @@ const CATEGORIES = ['added', 'changed', 'removed', 'fixed'];
  *     responses:
  *       201: { description: Entry created }
  */
-router.get('/', async (req, res) => {
+router.get('/', requireOwner, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT cl.*, o.full_name AS created_by_name
      FROM system_changelog cl LEFT JOIN owners o ON o.id = cl.created_by
@@ -47,6 +47,7 @@ router.get('/', async (req, res) => {
 
 router.post(
   '/',
+  requireOwnerScope('changelog:write'),
   body('version').isString().trim().notEmpty(),
   body('category').isIn(CATEGORIES),
   body('title').isString().trim().notEmpty(),

@@ -24,7 +24,7 @@ Employee — עובד עם role='employee', רואה/מדווח רק על עצמ
 src/
   server.js              נקודת כניסה, רישום כל ה-routes
   db/pool.js              pg connection pool
-  db/migrations/          002–020, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
+  db/migrations/          002–021, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
   db/schema.sql            דאמפ סכמה מלא
   middleware/auth.js       authenticate, requireRole, requireScope, requireOwner
   lib/notify.js            fan-out התראות (notifyOwners/notifyAdmins/notifyEmployee)
@@ -72,9 +72,11 @@ VPS של Hostinger, hostname `srv1901012.hstgr.cloud`, Ubuntu 24.04, Node.js v20
 - שלושתם משתמשים באותם secrets קיימים: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `DEPLOY_PATH` (רק frontend).
 - ⚠️ **git הוא מקור האמת לכל הקוד, לא הקבצים על השרת.** עריכה ישירה על השרת (גם `/var/www/html` וגם `/opt/treetime-api`) שלא הגיעה ל-git **תימחק/תידרס** ב-push הבא ל-main.
 
-### ⚠️ Bootstrap חד-פעמי נדרש להפעלת אוטומציית המיגרציות
+### ✅ Bootstrap המיגרציות בוצע (17.8.2026)
 
-`deploy-backend.yml` מריץ מיגרציות חדשות אוטומטית **רק** אם טבלת `schema_migrations` כבר קיימת ב-DB. עד שהיא לא קיימת, השלב הזה עושה no-op בטוח (רואים בלוג של ה-Action: "schema_migrations table not found yet"), ומיגרציות חדשות עדיין דורשות הרצה ידנית + GRANT כמו קודם. כדי להפעיל את האוטומציה **פעם אחת ולתמיד**, להריץ בשרת (`sudo -u postgres psql treetime`):
+`deploy-backend.yml` מריץ מיגרציות חדשות אוטומטית ברגע שטבלת `schema_migrations` קיימת ב-DB. ה-bootstrap החד-פעמי **כבר בוצע** — הטבלה קיימת, 002–020 מסומנות כ"כבר הופעלו", וה-GRANT הכללי רץ. **מיגרציה 021 ואילך תרוץ לגמרי לבד** (כולל GRANT) בפעם הבאה שקובץ מיגרציה חדש נכנס ל-`main` — אין יותר צורך בשום פעולה ידנית סביב מיגרציות.
+
+לצורך תיעוד, זה ה-SQL שהופעל אז (**אין צורך להריץ אותו שוב**):
 
 ```sql
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -94,8 +96,6 @@ ON CONFLICT DO NOTHING;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO treetime_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 ```
-
-זה מסמן את 002–020 כ"כבר הופעלו" (כי הם כבר רצו ידנית בעבר) כדי שהריצה האוטומטית הבאה לא תנסה להריץ אותם שוב. **מיגרציה 021 ואילך יופעלו אוטומטית**, כולל GRANT, בפעם הבאה שקובץ מיגרציה נכנס ל-`main`.
 
 ## מפת Routes (backend)
 
@@ -120,6 +120,17 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 | `ownerChangelog.js` | יומן שינויים (רק סופר-אדמין, בלי delete) |
 | `ownerAuth.js` / `ownerCompanies.js` / `ownerTickets.js` | פאנל סופר-אדמין: התחברות, ניהול חברות + impersonate, תמיכה |
 | `adminSignupLinks.js` | לינק חד-פעמי מסופר-אדמין לפתיחת חברה חדשה |
+| `ownerApiKeys.js` | מפתחות API ברמת owner, מוגבלים ל-scope ספציפי (ראו "גישת API לאוטומציה" למטה) |
+
+### גישת API לאוטומציה (owner-level, לא company-level)
+
+מ-17.8.2026 יש דרך למתן אוטומציה (CI, בדיקות e2e, רישום changelog) גישה **ממוקדת** לפעולות owner-only, בלי session אמיתי ובלי להרחיב את מנגנון ה-`api_keys` הרגיל (שהוא per-company, `requireRole`/`requireScope` — לעולם לא `requireOwner`).
+
+- טבלה נפרדת `owner_api_keys` (migration 021), לא קשורה ל-`api_keys` הרגילה.
+- Scopes תקפים: `changelog:write` (POST `/api/owner/changelog`), `impersonate` (POST `/api/owner/companies/:id/impersonate`). כל endpoint owner אחר (companies CRUD, dashboard, employee edits) עדיין `requireOwner` בלבד — מפתח כזה לא יכול לגעת בהם.
+- יצירה: `POST /api/owner/api-keys` (owner session אמיתי בלבד — לא ניתן ליצור מפתח עם מפתח). מחזיר את המפתח הגולמי (`tto_...`) פעם אחת בלבד.
+- ב-middleware: `req.auth.type === 'owner_apikey'`, ו-`req.auth.ownerId` מוגדר לזהות היוצר (מ-`created_by`) — כך שקוד קיים שקורא `req.auth.ownerId` (למשל רישום ל-`impersonation_log`, `created_by` ב-changelog) עובד זהה לשני סוגי ה-auth בלי שינוי נוסף.
+- `requireOwnerScope(scope)` ב-`middleware/auth.js` — מקביל ל-`requireOwner` אבל מוסיף גם מעבר למפתח עם ה-scope הנכון.
 
 ## מוסכמות עבודה
 
@@ -140,7 +151,7 @@ Super-admin: `support@tree-tech-system.com`. סיסמאות (כל הרמות) נ
 
 1. ✅ ~~backend בגיט~~ — הושלם, PR #3.
 2. ✅ ~~Deploy workflow ל-backend~~ — הושלם, PR #5.
-3. אוטומציה למיגרציות + GRANT — **הקוד קיים ומופעל** (PR #6, `deploy-backend.yml` + migration 020), אבל מחכה ל-bootstrap חד-פעמי בשרת (ראו "Deploy מ-Git" למעלה — עותק-הדבק אחד ב-`psql`) לפני שהוא באמת פעיל.
-4. גישת API ייעודית לבדיקות end-to-end ולרישום changelog אוטומטי. **נבדק — אין כרגע מנגנון**: `requireOwner` (ב-`middleware/auth.js`) מקבל רק JWT אמיתי מסוג `owner`, ו-API keys (`api_keys` table) הם ברמת חברה בלבד (`requireRole`/`requireScope`, לא `requireOwner`). להוסיף ל-API key גישת owner זו הרחבת הרשאות אמיתית שלא התבקשה — לא נעשה בלי אישור מפורש. אופציות לבחירה: (א) המשתמש עושה login דרך `/api/owner/auth/login` ומעביר טוקן חד-פעמי בכל פעם, (ב) endpoint/scope ייעודי חדש למפתחות owner-level, מוגבל לפעולות ספציפיות (כמו POST changelog בלבד) — דורש עיצוב וא ישור מפורש לפני מימוש.
+3. ✅ ~~אוטומציה למיגרציות + GRANT~~ — הושלם, PR #6 + bootstrap בשרת בוצע (17.8.2026). מיגרציה 021 היא הבדיקה החיה הראשונה של הריצה האוטומטית.
+4. ✅ ~~גישת API ייעודית לבדיקות e2e ולרישום changelog~~ — הושלם: מנגנון `owner_api_keys` נפרד וממוקד-scope (ראו "גישת API לאוטומציה" למעלה), migration 021. **נשאר לבצע ידנית פעם אחת:** owner מחובר צריך ליצור בפועל מפתח דרך `POST /api/owner/api-keys` (`{"name":"CI automation","scopes":["changelog:write","impersonate"]}`) ולשמור את ה-`api_key` שמוחזר (רק פעם אחת) כ-secret ב-GitHub (למשל `OWNER_API_KEY`) לשימוש עתידי באוטומציה/curl.
 5. ✅ ~~Test suite / CI~~ — הושלם, PR #5 (`ci.yml`): `node -c` + `npm ci` על כל PR.
 6. החלטה: לנקות את חברות הדמו (IDs `1`, `5`, `7` בטבלת `companies`) לפני production אמיתי, או להשאיר? **לא טופל — משנה נתוני production, ממתין להחלטה מפורשת.**
