@@ -24,7 +24,7 @@ Employee — עובד עם role='employee', רואה/מדווח רק על עצמ
 src/
   server.js              נקודת כניסה, רישום כל ה-routes
   db/pool.js              pg connection pool
-  db/migrations/          002–019, רצות לפי סדר המספור
+  db/migrations/          002–020, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
   db/schema.sql            דאמפ סכמה מלא
   middleware/auth.js       authenticate, requireRole, requireScope, requireOwner
   lib/notify.js            fan-out התראות (notifyOwners/notifyAdmins/notifyEmployee)
@@ -50,12 +50,11 @@ VPS של Hostinger, hostname `srv1901012.hstgr.cloud`, Ubuntu 24.04, Node.js v20
 
 ## ⚠️ מלכודות ידועות — קרו בפועל, גרמו לקריסת production
 
-1. **GRANT אחרי מיגרציה.** מיגרציה חדשה שרצה עם `sudo -u postgres psql -f migration.sql` יוצרת טבלה בבעלות `postgres`. `treetime_app` **לא** מקבל גישה אוטומטית → 502 מיידי בכל endpoint שנוגע בטבלה. חובה מיד אחרי כל מיגרציה:
+1. **GRANT אחרי מיגרציה — עכשיו אוטומטי, בתנאי שבוצע bootstrap חד-פעמי.** מיגרציה חדשה שרצה עם `sudo -u postgres psql -f migration.sql` יוצרת טבלה בבעלות `postgres`; `treetime_app` לא מקבל גישה אוטומטית → 502 מיידי. קרה בעבר עם `admin_signup_links` ו-`tasks`. **מ-17.8.2026 יש לזה פתרון קבוע:** `deploy-backend.yml` מריץ כל מיגרציה חדשה (לפי `schema_migrations`, ראו migration 020) ומיד אחריה `GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO treetime_app;` (סכימה שלמה, לא טבלה בודדת — פותר את זה סופית). **זה פעיל רק אחרי בוצע bootstrap חד-פעמי** (ראו "Deploy מ-Git" למטה) — אם הוא עוד לא בוצע, עדיין צריך GRANT ידני כמו קודם:
    ```sql
    GRANT ALL PRIVILEGES ON TABLE <table_name> TO treetime_app;
    GRANT USAGE, SELECT ON SEQUENCE <table_name>_id_seq TO treetime_app;
    ```
-   קרה עם `admin_signup_links` ו-`tasks`. עדיין רשומות owner=`postgres` בפועל — לא בעיה כל עוד ה-GRANT בוצע.
 
 2. **Cache-Control על HTML.** לכל location block שמגיש HTML ב-nginx צריך `add_header Cache-Control "no-cache, must-revalidate";`, אחרת דפדפנים תוקעים גרסאות ישנות של לוגו/עמודים.
 
@@ -65,9 +64,38 @@ VPS של Hostinger, hostname `srv1901012.hstgr.cloud`, Ubuntu 24.04, Node.js v20
 
 ## Deploy מ-Git
 
-- **`.github/workflows/deploy.yml`** — על כל push ל-`main`, SSH לשרת ומריץ `git fetch && git reset --hard origin/main` בתוך `$DEPLOY_PATH` (`/var/www/html`, **רק frontend**). Secrets: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `DEPLOY_PATH`.
-- ⚠️ **מ-16.8.2026 git הוא מקור האמת לפרונט-אנד, לא הקבצים על השרת.** עריכה ישירה על השרת בתיקיית `/var/www/html` שלא הגיעה ל-git **תימחק בשקט** ב-push הבא ל-main.
-- **ה-backend עדיין בלי deploy workflow.** שינוי שנכנס ל-`main` כאן לא משפיע על production עד שמישהו עם גישת שרת: (1) מריץ מיגרציות חדשות + GRANT, (2) מעדכן את `/opt/treetime-api` בשרת (`git pull` / דומה), (3) `sudo systemctl restart treetime-api`. להקים workflow מקביל לזה של הפרונט זו משימה פתוחה.
+מ-17.8.2026 **גם frontend וגם backend נפרסים אוטומטית** על push ל-`main`. `git push` (או merge PR) הוא כל מה שצריך — אין יותר צורך ב-SSH ידני לעדכון קוד.
+
+- **`.github/workflows/deploy.yml`** (frontend) — על כל push ל-`main`: SSH לשרת, `git fetch && git reset --hard origin/main` בתוך `$DEPLOY_PATH` (`/var/www/html`), ואז מנקה מהתיקייה הזו כל דבר שהוא לא באמת frontend (`index.html`, `admin-invite/`, `intake/`, `join/`, `owner/`, `signup/`, `.well-known/`) — כי הריפו הוא מונו-רפו ומ-17.8.2026 הוא מכיל גם את ה-backend, וקוד backend **לא** אמור לשבת בתיקייה שמוגשת פומבית ע"י nginx.
+- **`.github/workflows/deploy-backend.yml`** (חדש, 17.8.2026) — trigger רק על שינוי בנתיבי `src/**`, `scripts/**`, `package*.json`. SSH ל-`/opt/treetime-api`, `git reset --hard origin/main`, `npm install`, ואז מיגרציות (ראו bootstrap למטה), ואז `systemctl restart treetime-api` + בדיקת health.
+- **`.github/workflows/ci.yml`** (חדש, 17.8.2026) — על כל PR/push ל-`main`: `node -c` על כל קובצי ה-backend + `npm ci`. מאוטומט את בדיקת ה-syntax שהייתה ידנית.
+- שלושתם משתמשים באותם secrets קיימים: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `DEPLOY_PATH` (רק frontend).
+- ⚠️ **git הוא מקור האמת לכל הקוד, לא הקבצים על השרת.** עריכה ישירה על השרת (גם `/var/www/html` וגם `/opt/treetime-api`) שלא הגיעה ל-git **תימחק/תידרס** ב-push הבא ל-main.
+
+### ⚠️ Bootstrap חד-פעמי נדרש להפעלת אוטומציית המיגרציות
+
+`deploy-backend.yml` מריץ מיגרציות חדשות אוטומטית **רק** אם טבלת `schema_migrations` כבר קיימת ב-DB. עד שהיא לא קיימת, השלב הזה עושה no-op בטוח (רואים בלוג של ה-Action: "schema_migrations table not found yet"), ומיגרציות חדשות עדיין דורשות הרצה ידנית + GRANT כמו קודם. כדי להפעיל את האוטומציה **פעם אחת ולתמיד**, להריץ בשרת (`sudo -u postgres psql treetime`):
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO schema_migrations (filename) VALUES
+  ('002_multi_tenant.sql'), ('003_freelancer_model.sql'), ('004_activity_log.sql'),
+  ('005_company_slug.sql'), ('006_employee_public_id.sql'), ('007_employee_extra_fields.sql'),
+  ('008_company_business_fields.sql'), ('009_client_custom_fields.sql'), ('010_client_payment_method.sql'),
+  ('011_client_intake_links.sql'), ('012_notification_settings.sql'), ('013_guides.sql'),
+  ('014_employee_custom_fields_and_intake.sql'), ('015_platform_branding.sql'), ('016_system_changelog.sql'),
+  ('017_notifications.sql'), ('018_admin_signup_links.sql'), ('019_tasks.sql'), ('020_schema_migrations.sql')
+ON CONFLICT DO NOTHING;
+
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO treetime_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
+```
+
+זה מסמן את 002–020 כ"כבר הופעלו" (כי הם כבר רצו ידנית בעבר) כדי שהריצה האוטומטית הבאה לא תנסה להריץ אותם שוב. **מיגרציה 021 ואילך יופעלו אוטומטית**, כולל GRANT, בפעם הבאה שקובץ מיגרציה נכנס ל-`main`.
 
 ## מפת Routes (backend)
 
@@ -111,8 +139,8 @@ Super-admin: `support@tree-tech-system.com`. סיסמאות (כל הרמות) נ
 ## TODO פתוח (ראו גם Task list של הסשן)
 
 1. ✅ ~~backend בגיט~~ — הושלם, PR #3.
-2. Deploy workflow ל-backend (SSH + restart על push ל-main).
-3. אוטומציה למיגרציות + GRANT כחלק מה-deploy, כדי שהמלכודת ב"מלכודות ידועות" #1 לא תחזור.
-4. גישת API ייעודית (owner token / API key ב-GitHub secret) ל-e2e testing ולרישום changelog אוטומטי, בלי לבקש credentials מהמשתמש בכל פעם.
-5. Test suite / CI — כרגע הכל curl ידני.
-6. החלטה: לנקות את חברות הדמו (IDs `1`, `5`, `7` בטבלת `companies`) לפני production אמיתי, או להשאיר?
+2. ✅ ~~Deploy workflow ל-backend~~ — הושלם, PR #5.
+3. אוטומציה למיגרציות + GRANT — **הקוד קיים ומופעל** (PR #6, `deploy-backend.yml` + migration 020), אבל מחכה ל-bootstrap חד-פעמי בשרת (ראו "Deploy מ-Git" למעלה — עותק-הדבק אחד ב-`psql`) לפני שהוא באמת פעיל.
+4. גישת API ייעודית לבדיקות end-to-end ולרישום changelog אוטומטי. **נבדק — אין כרגע מנגנון**: `requireOwner` (ב-`middleware/auth.js`) מקבל רק JWT אמיתי מסוג `owner`, ו-API keys (`api_keys` table) הם ברמת חברה בלבד (`requireRole`/`requireScope`, לא `requireOwner`). להוסיף ל-API key גישת owner זו הרחבת הרשאות אמיתית שלא התבקשה — לא נעשה בלי אישור מפורש. אופציות לבחירה: (א) המשתמש עושה login דרך `/api/owner/auth/login` ומעביר טוקן חד-פעמי בכל פעם, (ב) endpoint/scope ייעודי חדש למפתחות owner-level, מוגבל לפעולות ספציפיות (כמו POST changelog בלבד) — דורש עיצוב וא ישור מפורש לפני מימוש.
+5. ✅ ~~Test suite / CI~~ — הושלם, PR #5 (`ci.yml`): `node -c` + `npm ci` על כל PR.
+6. החלטה: לנקות את חברות הדמו (IDs `1`, `5`, `7` בטבלת `companies`) לפני production אמיתי, או להשאיר? **לא טופל — משנה נתוני production, ממתין להחלטה מפורשת.**
