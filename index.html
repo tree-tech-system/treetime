@@ -1637,7 +1637,7 @@ function renderDashboardWidgetsSection(){
       </div>
       <div class="panel-pad" style="display:flex; flex-wrap:wrap; gap:12px;">
         ${widgets.length
-          ? widgets.map((w,i)=>renderOneDashboardWidget(w,i,widgets.length,admin)).join('')
+          ? widgets.map(w=>renderOneDashboardWidget(w,admin)).join('')
           : `<div class="cell-muted">עדיין אין widgets בדשבורד.${admin?' לחץ "הוסף דשבורד" למעלה, או "שמור תצוגה כ-widget" בעמוד דיווחי עבודה / משימות.':''}</div>`}
       </div>
     </div>
@@ -1653,12 +1653,8 @@ function openEditListWidgetModal(id){
   if(w) openAddListWidgetModal(w);
 }
 
-function renderOneDashboardWidget(w, i, total, admin){
-  const moveButtons = admin ? `
-    ${i>0?`<button class="icon-btn" title="הזז למעלה" onclick="moveDashboardWidget(${w.id},-1)">↑</button>`:''}
-    ${i<total-1?`<button class="icon-btn" title="הזז למטה" onclick="moveDashboardWidget(${w.id},1)">↓</button>`:''}
-    <button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>
-  ` : '';
+function renderOneDashboardWidget(w, admin){
+  const deleteButton = admin ? `<button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>` : '';
   // Press-and-hold arrow handles: one stretches width, one stretches height. No preset sizes anymore.
   const resizeHandles = admin ? `
     <div class="widget-resize-arrow widget-resize-arrow-w" title="לחץ והחזק כדי למתוח לרוחב">↔</div>
@@ -1676,7 +1672,7 @@ function renderOneDashboardWidget(w, i, total, admin){
           <div style="font-size:26px; font-weight:800;">${val}</div>
           <div style="display:flex; gap:4px; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end;">
             ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditKpiWidgetModal(${w.id})">${ICON.edit}</button>`:''}
-            ${moveButtons}
+            ${deleteButton}
           </div>
         </div>
         ${resizeHandles}
@@ -1689,7 +1685,7 @@ function renderOneDashboardWidget(w, i, total, admin){
         <div style="font-weight:700;">${w.title}</div>
         <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">
           ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditListWidgetModal(${w.id})">${ICON.edit}</button>`:''}
-          ${moveButtons}
+          ${deleteButton}
         </div>
       </div>
       <div id="widgetList-${w.id}" class="cell-muted">טוען...</div>
@@ -2293,19 +2289,6 @@ async function removeDashboardWidget(id){
   if(!confirm('להסיר את ה-widget מהדשבורד?')) return;
   try{
     await apiCall(`/dashboard-widgets/${id}`, { method:'DELETE' });
-    await refreshData();
-    renderAll();
-  }catch(err){ toast('שגיאה: '+err.message); }
-}
-
-async function moveDashboardWidget(id, direction){
-  const widgets = [...(state.dashboardWidgets||[])];
-  const idx = widgets.findIndex(w=>w.id===id);
-  const swapIdx = idx + direction;
-  if(idx<0 || swapIdx<0 || swapIdx>=widgets.length) return;
-  [widgets[idx], widgets[swapIdx]] = [widgets[swapIdx], widgets[idx]];
-  try{
-    await apiCall('/dashboard-widgets/reorder', { method:'POST', body: JSON.stringify({ order: widgets.map(w=>w.id) }) });
     await refreshData();
     renderAll();
   }catch(err){ toast('שגיאה: '+err.message); }
