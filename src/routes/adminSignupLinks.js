@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireOwner } = require('../middleware/auth');
+const { sendWelcomeEmail } = require('../lib/authEmails');
 
 const router = express.Router();
 const SLUG_RE = /^[a-z][a-z0-9-]{2,19}$/;
@@ -156,6 +157,7 @@ router.post(
       );
 
       await client.query('COMMIT');
+      sendWelcomeEmail(employee, company.name).catch(() => {});
       res.status(201).json({
         token: signToken(employee),
         employee: { ...employee, company_name: company.name, company_slug: company.slug },

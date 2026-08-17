@@ -498,9 +498,21 @@
       <div class="field"><label>אימייל</label><input type="email" id="loginEmail" required autocomplete="username"></div>
       <div class="field"><label>סיסמה</label><input type="password" id="loginPassword" required autocomplete="current-password"></div>
       <button type="submit" class="btn btn-primary btn-block" style="margin-top:14px;">התחברות</button>
+      <div style="text-align:center;margin-top:10px;">
+        <a href="#" onclick="showForgotPasswordForm(); return false;" style="font-size:12.5px;color:var(--green);font-weight:600;text-decoration:none;">שכחת סיסמה?</a>
+      </div>
       <div id="loginError" style="display:none;color:var(--red);font-size:13px;margin-top:10px;text-align:center;"></div>
     </form>
-    <div style="text-align:center;font-size:12.5px;color:var(--muted);margin-top:16px;">
+    <form id="forgotPasswordForm" style="display:none;">
+      <div class="hint" style="margin-bottom:12px;">הזן/י את כתובת האימייל של החשבון — נשלח אליה קישור לאיפוס סיסמה.</div>
+      <div class="field"><label>אימייל</label><input type="email" id="forgotEmail" required autocomplete="username"></div>
+      <button type="submit" class="btn btn-primary btn-block" style="margin-top:14px;">שליחת קישור לאיפוס</button>
+      <div style="text-align:center;margin-top:10px;">
+        <a href="#" onclick="showLoginForm(); return false;" style="font-size:12.5px;color:var(--green);font-weight:600;text-decoration:none;">חזרה להתחברות</a>
+      </div>
+      <div id="forgotResult" style="display:none;font-size:13px;margin-top:10px;text-align:center;"></div>
+    </form>
+    <div id="loginFooterLink" style="text-align:center;font-size:12.5px;color:var(--muted);margin-top:16px;">
       עדיין אין לך סביבת עבודה? <a href="/signup/" style="color:var(--green);font-weight:600;text-decoration:none;">פתח אחת חדשה</a>
     </div>
   </div>
@@ -648,7 +660,8 @@ let state = {
   freelancers: [], clients: [], entries: [], activeTimers: [],
   editRequests: [], supportTickets: [], clientFields: [], intakeLinks: [],
   employeeFields: [], employeeIntakeLinks: [], notifications: [], tasks: [], dashboardWidgets: [],
-  notificationSettings: { quota80_notify_admin:true, quota80_notify_employee:false, edit_request_notify_admin:true, support_reply_notify_admin:true, support_reply_notify_employee:false },
+  notificationSettings: { quota80_notify_admin:true, quota80_notify_employee:false, edit_request_notify_admin:true, support_reply_notify_admin:true, support_reply_notify_employee:false,
+    quota80_email_admin:false, quota80_email_employee:false, edit_request_email_admin:false, support_reply_email_admin:false, support_reply_email_employee:false },
   currentUserId: null, currentRole: 'freelancer',
   settings: { autoCloseEnabled:false, autoCloseMode:'hours', autoCloseAfterHours:8, autoCloseTime:'23:00' },
   nextId: { client: 1, freelancer: 1, entry: 1, timer: 1, editRequest: 1, supportTicket: 1, supportMessage: 1 },
@@ -970,6 +983,40 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   }catch(err){
     errEl.textContent = err.message;
     errEl.style.display = 'block';
+  }
+});
+
+function showForgotPasswordForm(){
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('loginFooterLink').style.display = 'none';
+  document.getElementById('forgotPasswordForm').style.display = 'block';
+  document.getElementById('forgotResult').style.display = 'none';
+}
+function showLoginForm(){
+  document.getElementById('forgotPasswordForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'block';
+  document.getElementById('loginFooterLink').style.display = 'block';
+}
+
+document.getElementById('forgotPasswordForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const resultEl = document.getElementById('forgotResult');
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try{
+    const data = await apiCall('/auth/forgot-password', {
+      method:'POST',
+      body: JSON.stringify({ email: document.getElementById('forgotEmail').value }),
+    });
+    resultEl.style.color = 'var(--green)';
+    resultEl.textContent = data.message;
+    resultEl.style.display = 'block';
+  }catch(err){
+    resultEl.style.color = 'var(--red)';
+    resultEl.textContent = err.message;
+    resultEl.style.display = 'block';
+  }finally{
+    btn.disabled = false;
   }
 });
 
@@ -4454,25 +4501,30 @@ function renderSettingsPage(){
 
 function renderNotificationSettingsPanel(){
   const n = state.notificationSettings;
-  const row = (label, adminKey, employeeKey) => `
+  const cb = (key) => key ? `<input type="checkbox" id="n_${key}" ${n[key]?'checked':''}>` : `<span class="cell-muted" style="font-size:12px;">לא רלוונטי</span>`;
+  const row = (label, adminKey, employeeKey, adminEmailKey, employeeEmailKey) => `
     <tr>
       <td style="font-weight:600;">${label}</td>
-      <td style="text-align:center;"><input type="checkbox" id="n_${adminKey}" ${n[adminKey]?'checked':''}></td>
-      <td style="text-align:center;">${employeeKey
-        ? `<input type="checkbox" id="n_${employeeKey}" ${n[employeeKey]?'checked':''}>`
-        : `<span class="cell-muted" style="font-size:12px;">לא רלוונטי — התראה זו למנהל בלבד</span>`}</td>
+      <td style="text-align:center;">${cb(adminKey)}</td>
+      <td style="text-align:center;">${employeeKey ? cb(employeeKey) : `<span class="cell-muted" style="font-size:12px;">לא רלוונטי — התראה זו למנהל בלבד</span>`}</td>
+      <td style="text-align:center;">${cb(adminEmailKey)}</td>
+      <td style="text-align:center;">${employeeEmailKey ? cb(employeeEmailKey) : ''}</td>
     </tr>
   `;
   return `
-    <div class="sub" style="margin-bottom:12px;">בחר על מה לקבל התראה, ולמי</div>
+    <div class="sub" style="margin-bottom:12px;">בחר על מה לקבל התראה, למי, ואם גם במייל (בנוסף לפעמון באפליקציה)</div>
     <table>
-      <thead><tr><th></th><th style="text-align:center;">התראה למנהל המערכת</th><th style="text-align:center;">התראה לעובד / משתמש פרילנסר</th></tr></thead>
+      <thead><tr>
+        <th></th><th style="text-align:center;">התראה למנהל</th><th style="text-align:center;">התראה לעובד</th>
+        <th style="text-align:center;">גם במייל — מנהל</th><th style="text-align:center;">גם במייל — עובד</th>
+      </tr></thead>
       <tbody>
-        ${row('התראה על ניצול של 80% מהחבילה', 'quota80_notify_admin', 'quota80_notify_employee')}
-        ${row('התראה על בקשה חדשה לתיקון דיווח', 'edit_request_notify_admin', null)}
-        ${row('התראה על הודעות ותגובות חדשות בתמיכה מסופר האדמין של טריטק', 'support_reply_notify_admin', 'support_reply_notify_employee')}
+        ${row('התראה על ניצול של 80% מהחבילה', 'quota80_notify_admin', 'quota80_notify_employee', 'quota80_email_admin', 'quota80_email_employee')}
+        ${row('התראה על בקשה חדשה לתיקון דיווח', 'edit_request_notify_admin', null, 'edit_request_email_admin', null)}
+        ${row('התראה על הודעות ותגובות חדשות בתמיכה מסופר האדמין של טריטק', 'support_reply_notify_admin', 'support_reply_notify_employee', 'support_reply_email_admin', 'support_reply_email_employee')}
       </tbody>
     </table>
+    <div class="hint" style="margin-top:10px;">איפוס סיסמה, אישור חשבון, והודעות אבטחה נשלחים במייל תמיד ואינם ניתנים לכיבוי כאן.</div>
     <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
       <button class="btn btn-primary" onclick="saveNotificationSettings()">${ICON.check} שמור הרשאות התראות</button>
     </div>
@@ -4486,6 +4538,11 @@ async function saveNotificationSettings(){
     edit_request_notify_admin: document.getElementById('n_edit_request_notify_admin').checked,
     support_reply_notify_admin: document.getElementById('n_support_reply_notify_admin').checked,
     support_reply_notify_employee: document.getElementById('n_support_reply_notify_employee').checked,
+    quota80_email_admin: document.getElementById('n_quota80_email_admin').checked,
+    quota80_email_employee: document.getElementById('n_quota80_email_employee').checked,
+    edit_request_email_admin: document.getElementById('n_edit_request_email_admin').checked,
+    support_reply_email_admin: document.getElementById('n_support_reply_email_admin').checked,
+    support_reply_email_employee: document.getElementById('n_support_reply_email_employee').checked,
   };
   try{
     await apiCall('/notification-settings', { method:'PATCH', body: JSON.stringify(body) });

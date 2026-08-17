@@ -24,10 +24,13 @@ Employee — עובד עם role='employee', רואה/מדווח רק על עצמ
 src/
   server.js              נקודת כניסה, רישום כל ה-routes
   db/pool.js              pg connection pool
-  db/migrations/          002–023, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
+  db/migrations/          002–027, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
   db/schema.sql            דאמפ סכמה מלא
   middleware/auth.js       authenticate, requireRole, requireScope, requireOwner
-  lib/notify.js            fan-out התראות (notifyOwners/notifyAdmins/notifyEmployee)
+  lib/notify.js            fan-out התראות **פנימיות באפליקציה בלבד** (notifyOwners/notifyAdmins/notifyEmployee) — לא מייל
+  lib/mailer.js            שליחת מייל בפועל (SMTP דרך nodemailer) — ראו "אינטגרציית מייל" למטה
+  lib/authTokens.js        טוקנים חד-פעמיים (איפוס סיסמה / אישור אימייל)
+  lib/authEmails.js        תוכן המיילים הטרנזקציוניים (welcome/reset/changed), משתמש ב-mailer+authTokens
   lib/webhookDispatcher.js
   lib/slug.js
   routes/                  קובץ אחד למשאב — ראו מפה למטה
@@ -35,7 +38,7 @@ src/
 scripts/                  backfill_slugs.js, seed_demo.js
 ```
 
-**Frontend** (שורש הריפו) — **אין build step, אין framework**. כל עמוד הוא HTML מונוליתי עם `<style>`/`<script>` inline שמדבר עם ה-API דרך `fetch`: `index.html` (אדמין+עובד, ~4000 שורות), `owner/index.html` (סופר-אדמין), `signup/`, `intake/`, `join/`, `admin-invite/` (כל אחד עמוד ציבורי חד-פעמי).
+**Frontend** (שורש הריפו) — **אין build step, אין framework**. כל עמוד הוא HTML מונוליתי עם `<style>`/`<script>` inline שמדבר עם ה-API דרך `fetch`: `index.html` (אדמין+עובד, ~4000 שורות), `owner/index.html` (סופר-אדמין), `signup/`, `intake/`, `join/`, `admin-invite/`, `reset-password/`, `confirm-email/` (כל אחד עמוד ציבורי חד-פעמי). **הבדל חשוב:** `signup/`/`intake/`/`join/`/`admin-invite/` מזהים את הטוקן דרך ה-path (`/join/<token>`, דורש nginx שמטפל בזה) — `reset-password/`/`confirm-email/` **מכוונים**, דרך query string (`?token=`), כדי לא לדרוש שום שינוי ב-nginx כשנוספה התיקייה (ראו "אינטגרציית מייל" למטה).
 
 **Multi-tenancy:** כל חברה מקבלת slug (`/c/<slug>/<page>`), מנותב גם ב-nginx (`try_files` ל-SPA fallback) וגם client-side (`history.pushState`/`popstate`).
 
@@ -66,7 +69,7 @@ VPS של Hostinger, hostname `srv1901012.hstgr.cloud`, Ubuntu 24.04, Node.js v20
 
 מ-17.8.2026 **גם frontend וגם backend נפרסים אוטומטית** על push ל-`main`. `git push` (או merge PR) הוא כל מה שצריך — אין יותר צורך ב-SSH ידני לעדכון קוד.
 
-- **`.github/workflows/deploy.yml`** (frontend) — על כל push ל-`main`: SSH לשרת, `git fetch && git reset --hard origin/main` בתוך `$DEPLOY_PATH` (`/var/www/html`), ואז מנקה מהתיקייה הזו כל דבר שהוא לא באמת frontend (`index.html`, `admin-invite/`, `intake/`, `join/`, `owner/`, `signup/`, `.well-known/`) — כי הריפו הוא מונו-רפו ומ-17.8.2026 הוא מכיל גם את ה-backend, וקוד backend **לא** אמור לשבת בתיקייה שמוגשת פומבית ע"י nginx.
+- **`.github/workflows/deploy.yml`** (frontend) — על כל push ל-`main`: SSH לשרת, `git fetch && git reset --hard origin/main` בתוך `$DEPLOY_PATH` (`/var/www/html`), ואז מנקה מהתיקייה הזו כל דבר שהוא לא באמת frontend (`index.html`, `admin-invite/`, `intake/`, `join/`, `owner/`, `signup/`, `reset-password/`, `confirm-email/`, `.well-known/`) — כי הריפו הוא מונו-רפו ומ-17.8.2026 הוא מכיל גם את ה-backend, וקוד backend **לא** אמור לשבת בתיקייה שמוגשת פומבית ע"י nginx. **תיקייה ציבורית חדשה = חייבים להוסיף אותה לרשימה הזו, אחרת ה-deploy הבא ימחק אותה.**
 - **`.github/workflows/deploy-backend.yml`** (חדש, 17.8.2026) — trigger רק על שינוי בנתיבי `src/**`, `scripts/**`, `package*.json`. SSH ל-`/opt/treetime-api`, `git reset --hard origin/main`, `npm install`, ואז מיגרציות (ראו bootstrap למטה), ואז `systemctl restart treetime-api` + בדיקת health.
 - **`.github/workflows/ci.yml`** (חדש, 17.8.2026) — על כל PR/push ל-`main`: `node -c` על כל קובצי ה-backend + `npm ci`. מאוטומט את בדיקת ה-syntax שהייתה ידנית.
 - שלושתם משתמשים באותם secrets קיימים: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `DEPLOY_PATH` (רק frontend).
@@ -101,7 +104,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 
 | קובץ | תפקיד |
 |------|-------|
-| `auth.js` | התחברות עובד/אדמין |
+| `auth.js` | התחברות עובד/אדמין; גם איפוס סיסמה, אישור אימייל (ראו "אינטגרציית מייל" למטה) |
 | `employees.js` | CRUD עובדים; מסנן שדות לפי role (ראו "דפוס פרטיות" למטה) |
 | `projects.js` | CRUD **לקוחות** |
 | `timeEntries.js` | שעונים/דיווחי זמן |
@@ -113,7 +116,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 | `signup.js` | הרשמה עצמית פומבית לאדמין חדש |
 | `clientFields.js` / `clientIntake.js` | שדות מותאמים ללקוח + לינק עצמאי |
 | `employeeFields.js` / `employeeIntake.js` | שדות מותאמים לעובד + לינק עצמאי |
-| `notificationSettings.js` | הגדרות מי מקבל איזו התראה |
+| `notificationSettings.js` | הגדרות מי מקבל איזו התראה, כולל ערוץ מייל (ראו "אינטגרציית מייל" למטה) |
 | `guides.js` / `ownerGuides.js` | סרטוני הדרכה |
 | `branding.js` | לוגו/מיתוג (מנוהל ע"י סופר-אדמין) |
 | `notifications.js` / `ownerNotifications.js` | פעמון התראות |
@@ -143,6 +146,20 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 - **הכרטיסים הקבועים הישנים של הדשבורד הפכו ל-widgets רגילים (18.8.2026, migration 023 + `src/lib/defaultWidgets.js`).** 4 ה-KPI וה-2 טבלאות/פאנל שהיו hardcoded ב-`renderDashboard()` (סה״כ שעות החודש, שעונים פתוחים, לקוחות מעל מכסה, עובדים פעילים, מכסת שעות ללקוח, פעילות עובדים, דיווחים אחרונים) הוסרו מהקוד הקשיח ומוזרעים כשורות `dashboard_widgets` רגילות — הן ל-19 החברות הקיימות (migration חד-פעמית) והן לכל חברה חדשה (`seedDefaultWidgets()` נקרא מ-`signup.js` ומ-`ownerCompanies.js` POST `/`, בתוך אותה טרנזקציה). ניתנות עכשיו להסרה/סידור/עריכה כמו כל widget אחר. **לא הומר:** גרף "מגמת שעות — 6 שבועות אחרונים" — זה time-series (כמה נקודות נתון), לא scalar KPI ולא רשימה — נשאר hardcoded בכוונה, ממתין ל-widget type שלישי (`trend`/`chart`) שעדיין לא נבנה.
 - הרשאות: כתיבה (`POST`/`PATCH`/`DELETE`/`reorder`) = `requireRole('admin')` בלבד. קריאה = כל מי שמחובר לחברה (כרגע רק אדמין רואה בפועל, כי ה-widgets מוצגים רק ב-`renderDashboard()` שהיא admin-only — עדיין לא הורחב ל-`renderPersonalDashboard()` של עובד).
 
+### אינטגרציית מייל (SMTP, 18.8.2026)
+
+המערכת שולחת מייל אמיתי עכשיו — עד עכשיו `lib/notify.js` היה **רק** התראות פנימיות באפליקציה (טבלת `notifications`, פעמון), אין ולא היה שום קשר למייל.
+
+- **תשתית (`src/lib/`):**
+  - `mailer.js` — transport של `nodemailer` נבנה מ-env vars (`SMTP_HOST`/`SMTP_PORT`/`SMTP_SECURE`/`SMTP_USER`/`SMTP_PASS`). **אם `SMTP_HOST` לא מוגדר — לא זורק שגיאה, רק רושם ל-log ומדלג.** ככה כל הפיצ'ר עובד קצה-לקצה (החתימה על הזרימה, ה-DB, הטוקנים) גם בלי ספק SMTP אמיתי מוגדר עדיין. `sendMail()` עצמה **אף פעם לא זורקת** — כל קריאה אליה בקוד היא fire-and-forget עם `.catch(()=>{})`, כדי שכשל בשליחת מייל לעולם לא יפיל את הפעולה שהפעילה אותו (הרשמה מצליחה גם אם מייל הברוכים-הבאים נכשל). `renderEmail()`/`buttonHtml()` — תבנית HTML ממותגת משותפת לכל סוגי המייל. `Reply-To` על **כל** מייל יוצא = `SUPPORT_EMAIL` (ברירת מחדל `support@tree-tech-system.com`) — לא מנגנון contact-form דו-כיווני, רק שאם מישהו לוחץ "השב" זה מגיע לתמיכה.
+  - `authTokens.js` — טוקן חד-פעמי גנרי: `createAuthToken(employeeId, purpose, ttlMs)` מייצר טוקן רנדומלי (32 בייט), שומר רק את ה-**hash** שלו ב-`auth_tokens` (migration 026, כמו `password_hash` — דלף DB לבד לא מספיק לניצול). `consumeAuthToken(rawToken, purpose)` — `UPDATE ... RETURNING` אטומי יחיד (בודק+מסמן כמנוצל בפעולה אחת, מונע race condition בין שתי בקשות בו-זמניות עם אותו טוקן).
+  - `authEmails.js` — מרכיב את 3 המיילים הטרנזקציוניים בפועל (`sendWelcomeEmail`/`sendPasswordResetEmail`/`sendPasswordChangedEmail`) מעל `mailer.js`+`authTokens.js`.
+- **איפוס סיסמה (חדש לגמרי — לא היה קיים).** `POST /api/auth/forgot-password` (עובד/אדמין בלבד, לא owner) — **תמיד** מחזיר תשובה זהה בין אם המייל קיים או לא, כדי שלא ישמש לבדיקת אילו כתובות רשומות. `POST /api/auth/reset-password` — טוקן + סיסמה חדשה, שולח מייל אישור אחרי. עמוד ציבורי `reset-password/` (טוקן ב-query string). קישור "שכחת סיסמה?" במסך ההתחברות של `index.html` (טופס inline, לא modal — כדי לעבוד גם לפני login).
+- **אישור חשבון (חדש לגמרי).** לא gate חוסם — עובד יכול להתחבר מיד כרגיל, זה רק תיעוד. מייל "ברוכים הבאים" ואישור חשבון **אוחדו למייל אחד** (לא שני מיילים על אותו אירוע) — כפתור באימייל מוביל ל-`confirm-email/` (query string), קורא ל-`POST /api/auth/confirm-email`, מסמן `employees.email_confirmed_at`. **נשלח מכל 6 המקומות שיוצרים שורת employee:** `auth.js` `/register`, `signup.js`, `ownerCompanies.js`, `adminSignupLinks.js`, `employeeIntake.js`, `employees.js` (הוספת עובד ע"י אדמין). הדגל `email_confirmed_at` נשמר אבל **לא נאכף/מוצג בשום מקום עדיין** — אם ירצו UI/gate על זה, זו תוספת נפרדת.
+- **שינוי סיסמה.** ה-endpoint הקיים `/api/auth/change-password` (ולא רק `reset-password` החדש) שולח עכשיו מייל אבטחה "הסיסמה שלך עודכנה" בסיום.
+- **התראות מוגדרות (quota80/edit_request/support_reply) — הורחבו, לא נבנו מחדש.** `company_notification_settings` (migration 027) קיבל עמודת `_email_` מקבילה לכל עמודת `_notify_` קיימת (`quota80_email_admin`, `edit_request_email_admin`, וכו') — **ברירת מחדל `false`** (מייל פולשני יותר מפעמון, opt-in ולא opt-out כמו רוב ה-`_notify_`). נבדק ונשלח ב-`editRequests.js` וב-`ownerTickets.js`, באותה נקודה שכבר קוראת ל-`notifyAdmins`/`notifyEmployee` — לא נוסף hook חדש. **`quota80` אין לו trigger שרתי בכלל** (גם לא ל-in-app) — זה עדיין רק חישוב client-side לבאנר בדשבורד, כך שההגדרה קיימת ב-UI/DB אבל לא תשלח בפועל עד שמישהו יבנה בדיקה תקופתית בצד השרת. UI: טבלת "הגדרות התראות" ב-`index.html` קיבלה 2 עמודות נוספות ("גם במייל — מנהל/עובד") לצד ה-2 הקיימות.
+- **מה עוד לא הוגדר / נשאר לעשות:** **אין עדיין ספק SMTP אמיתי מוגדר** — המשתמש בחר ספק בראש אבל עוד לא סיפק host/port/username/password. עד אז `SMTP_HOST` לא קיים ב-`.env` והמערכת רק רושמת ל-log במקום לשלוח בפועל (ראו "TODO פתוח"). כשיהיו פרטים: להוסיף אותם ל-`.env` בשרת (**לעולם לא** לגיט!), ואולי גם `SMTP_HOST`/`PORT`/`SECURE`/`USER`/`PASS`/`MAIL_FROM`/`APP_URL` (כולם עם ברירת מחדל סבירה בקוד אם חלקם חסרים) — וגם רשומות DNS (SPF/DKIM) בדומיין כדי שלא ייפול לספאם.
+
 ### גישת API לאוטומציה (owner-level, לא company-level)
 
 מ-17.8.2026 יש דרך למתן אוטומציה (CI, בדיקות e2e, רישום changelog) גישה **ממוקדת** לפעולות owner-only, בלי session אמיתי ובלי להרחיב את מנגנון ה-`api_keys` הרגיל (שהוא per-company, `requireRole`/`requireScope` — לעולם לא `requireOwner`).
@@ -166,6 +183,8 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 
 **שום סוד לא נמצא בקובץ הזה או בריפו בכוונה תחילה** — לא סיסמאות, לא JWT secret, לא connection string. `.env` בשרת (`/opt/treetime-api/.env`) מכיל `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `PORT`, `NODE_ENV` ומודר דרך `.gitignore`. `uploads/` (קבצים שהעלו משתמשים בפועל) גם מודר בכוונה — זה דאטה של לקוחות, לא קוד, והריפו **ציבורי**.
 
+**עוד לא הוגדרו בשרת (מ-18.8.2026, ראו "אינטגרציית מייל" למעלה):** `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `SUPPORT_EMAIL`, `APP_URL`. עד שיתווספו — המערכת רק רושמת מיילים ל-log במקום לשלוח, לא נכשלת.
+
 Super-admin: `support@tree-tech-system.com`. סיסמאות (כל הרמות) נמסרות/מתאפסות רק בצ'אט ישירות מהמשתמש, לעולם לא נשמרות בקובץ.
 
 ## TODO פתוח (ראו גם Task list של הסשן)
@@ -176,3 +195,4 @@ Super-admin: `support@tree-tech-system.com`. סיסמאות (כל הרמות) נ
 4. ✅ ~~גישת API ייעודית לבדיקות e2e ולרישום changelog~~ — הושלם: מנגנון `owner_api_keys` נפרד וממוקד-scope (ראו "גישת API לאוטומציה" למעלה), migration 021. **נשאר לבצע ידנית פעם אחת:** owner מחובר צריך ליצור בפועל מפתח דרך `POST /api/owner/api-keys` (`{"name":"CI automation","scopes":["changelog:write","impersonate"]}`) ולשמור את ה-`api_key` שמוחזר (רק פעם אחת) כ-secret ב-GitHub (למשל `OWNER_API_KEY`) לשימוש עתידי באוטומציה/curl.
 5. ✅ ~~Test suite / CI~~ — הושלם, PR #5 (`ci.yml`): `node -c` + `npm ci` על כל PR.
 6. החלטה: לנקות את חברות הדמו (IDs `1`, `5`, `7` בטבלת `companies`) לפני production אמיתי, או להשאיר? **לא טופל — משנה נתוני production, ממתין להחלטה מפורשת.**
+7. **אינטגרציית מייל (SMTP) — הקוד מוכן, חסרים פרטי ספק אמיתיים (18.8.2026).** ראו "אינטגרציית מייל" למעלה — כל הזרימות (איפוס סיסמה, אישור חשבון, welcome, שינוי סיסמה, התראות מוגדרות) בנויות ועובדות, אבל בלי `SMTP_HOST` וכו' ב-`.env` בשרת שום מייל לא באמת יוצא (רק log). **נשאר:** (א) לבחור/להקים ספק בפועל ולקבל host/port/username/password, (ב) להוסיף אותם ל-`.env` בשרת (סוד — לא לגיט), (ג) רשומות DNS (SPF/DKIM) בדומיין כדי שלא ייפול לספאם, (ד) בדיקת קצה-לקצה עם תיבת מייל אמיתית (אין לי גישה לתיבה — צריך אישור שהמייל התקבל בפועל).

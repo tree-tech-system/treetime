@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>איפוס סיסמה</title>
+<link rel="icon" type="image/png" href="/api/branding/logo" id="faviconLink">
+<script>document.getElementById('faviconLink').href = '/api/branding/logo?v=' + Date.now();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10241C; --bg:#FAF9F4; --panel:#FFFFFF; --border:#E4E1D6;
+    --muted:#6B7568; --green:#2F6F4E; --green-soft:#E7F1EA; --green-bright:#3F9863;
+    --red:#C0392B; --shadow: 0 1px 2px rgba(16,36,28,0.04), 0 8px 24px rgba(16,36,28,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{ font-family:'Assistant',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh;
+        display:flex; align-items:center; justify-content:center; padding:24px; }
+  h1,h2{ font-family:'Rubik',sans-serif; margin:0; }
+  .card{ width:100%; max-width:420px; background:var(--panel); border:1px solid var(--border);
+         border-radius:18px; padding:30px; box-shadow:var(--shadow); }
+  .card h1{ font-size:19px; text-align:center; }
+  .sub{ text-align:center; font-size:13px; color:var(--muted); margin-top:4px; margin-bottom:22px; }
+  label{ display:block; font-size:13px; font-weight:600; margin:10px 0 5px; }
+  input{
+    width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:9px;
+    font-family:'Assistant'; font-size:14px; background:#FCFBF7; color:var(--ink);
+  }
+  input:focus{ outline:none; border-color:var(--green-bright); }
+  button{ border:none; border-radius:10px; padding:12px 16px; font-family:'Rubik'; font-weight:700;
+          font-size:14.5px; cursor:pointer; width:100%; margin-top:20px; }
+  .btn-primary{ background:var(--green); color:#fff; }
+  .btn-primary:hover{ background:var(--green-bright); }
+  .btn-primary:disabled{ opacity:.6; cursor:not-allowed; }
+  .error{ color:var(--red); font-size:13px; margin-top:12px; text-align:center; display:none; }
+  .state-screen{ text-align:center; padding:20px 0; }
+  .state-screen .t{ font-size:16px; font-weight:700; margin:10px 0 6px; }
+  .state-screen .s{ font-size:13.5px; color:var(--muted); }
+  .back-link{ display:block; text-align:center; margin-top:16px; font-size:13px; color:var(--green); text-decoration:none; font-weight:600; }
+  .back-link:hover{ text-decoration:underline; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div id="loadingState" class="state-screen">טוען...</div>
+</div>
+
+<script>
+const API = '/api';
+const $ = (id) => document.getElementById(id);
+const token = new URLSearchParams(location.search).get('token');
+
+function renderInvalid(){
+  $('card').innerHTML = `
+    <div class="state-screen">
+      <div class="t">הקישור אינו תקין</div>
+      <div class="s">הקישור לאיפוס סיסמה חסר, פג תוקף, או שכבר נוצל. אפשר לבקש קישור חדש ממסך ההתחברות.</div>
+    </div>
+    <a class="back-link" href="/">חזרה להתחברות</a>
+  `;
+}
+
+function renderForm(){
+  $('card').innerHTML = `
+    <h1>איפוס סיסמה</h1>
+    <div class="sub">בחר/י סיסמה חדשה לחשבון שלך</div>
+    <form id="resetForm">
+      <label>סיסמה חדשה (לפחות 8 תווים)</label><input type="password" id="fPassword" required minlength="8">
+      <label>אימות סיסמה</label><input type="password" id="fPassword2" required minlength="8">
+      <button type="submit" class="btn-primary" id="submitBtn">איפוס סיסמה</button>
+      <div class="error" id="formError"></div>
+    </form>
+  `;
+  $('resetForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = $('formError');
+    errEl.style.display = 'none';
+    if($('fPassword').value !== $('fPassword2').value){
+      errEl.textContent = 'הסיסמאות אינן תואמות';
+      errEl.style.display = 'block';
+      return;
+    }
+    const btn = $('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'שולח...';
+    try{
+      const res = await fetch(`${API}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, new_password: $('fPassword').value }),
+      });
+      const data = await res.json().catch(() => null);
+      if(!res.ok) throw new Error(data?.message || data?.error || `שגיאה (${res.status})`);
+      renderSuccess();
+    }catch(err){
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'איפוס סיסמה';
+    }
+  });
+}
+
+function renderSuccess(){
+  $('card').innerHTML = `
+    <div class="state-screen">
+      <div class="t">הסיסמה עודכנה</div>
+      <div class="s">אפשר להתחבר עכשיו עם הסיסמה החדשה.</div>
+    </div>
+    <a class="back-link" href="/">להתחברות</a>
+  `;
+}
+
+(function boot(){
+  if(!token){ renderInvalid(); return; }
+  renderForm();
+})();
+</script>
+</body>
+</html>

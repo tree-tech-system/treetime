@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>אישור חשבון</title>
+<link rel="icon" type="image/png" href="/api/branding/logo" id="faviconLink">
+<script>document.getElementById('faviconLink').href = '/api/branding/logo?v=' + Date.now();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10241C; --bg:#FAF9F4; --panel:#FFFFFF; --border:#E4E1D6;
+    --muted:#6B7568; --green:#2F6F4E; --green-soft:#E7F1EA; --green-bright:#3F9863;
+    --red:#C0392B; --shadow: 0 1px 2px rgba(16,36,28,0.04), 0 8px 24px rgba(16,36,28,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{ font-family:'Assistant',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh;
+        display:flex; align-items:center; justify-content:center; padding:24px; }
+  h1,h2{ font-family:'Rubik',sans-serif; margin:0; }
+  .card{ width:100%; max-width:420px; background:var(--panel); border:1px solid var(--border);
+         border-radius:18px; padding:30px; box-shadow:var(--shadow); }
+  .state-screen{ text-align:center; padding:20px 0; }
+  .state-screen .t{ font-size:16px; font-weight:700; margin:10px 0 6px; }
+  .state-screen .s{ font-size:13.5px; color:var(--muted); }
+  .back-link{ display:block; text-align:center; margin-top:16px; font-size:13px; color:var(--green); text-decoration:none; font-weight:600; }
+  .back-link:hover{ text-decoration:underline; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div id="loadingState" class="state-screen">
+    <div class="t">מאשר את החשבון...</div>
+  </div>
+</div>
+
+<script>
+const API = '/api';
+const $ = (id) => document.getElementById(id);
+const token = new URLSearchParams(location.search).get('token');
+
+function renderInvalid(){
+  $('card').innerHTML = `
+    <div class="state-screen">
+      <div class="t">הקישור אינו תקין</div>
+      <div class="s">הקישור לאישור החשבון חסר, פג תוקף (48 שעות), או שכבר נוצל. זה לא חוסם את השימוש במערכת — אפשר פשוט להתחבר כרגיל.</div>
+    </div>
+    <a class="back-link" href="/">להתחברות</a>
+  `;
+}
+
+function renderSuccess(){
+  $('card').innerHTML = `
+    <div class="state-screen">
+      <div class="t">החשבון אושר!</div>
+      <div class="s">כתובת האימייל שלך אומתה בהצלחה.</div>
+    </div>
+    <a class="back-link" href="/">להתחברות</a>
+  `;
+}
+
+(async function boot(){
+  if(!token){ renderInvalid(); return; }
+  try{
+    const res = await fetch(`${API}/auth/confirm-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if(!res.ok){ renderInvalid(); return; }
+    renderSuccess();
+  }catch(err){ renderInvalid(); }
+})();
+</script>
+</body>
+</html>

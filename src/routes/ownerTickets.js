@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireOwner } = require('../middleware/auth');
 const { notifyAdmins, notifyEmployee } = require('../lib/notify');
+const { sendAdminEmails, sendEmployeeEmailById } = require('../lib/mailer');
 
 const router = express.Router();
 router.use(authenticate, requireOwner);
@@ -136,13 +137,25 @@ router.post('/:id/messages', body('body').isString().trim().notEmpty(), async (r
   await pool.query(`UPDATE support_tickets SET status = 'pending', updated_at = now() WHERE id = $1`, [req.params.id]);
 
   const ticket = ticketRes.rows[0];
-  const settings = await pool.query('SELECT support_reply_notify_admin, support_reply_notify_employee FROM company_notification_settings WHERE company_id = $1', [ticket.company_id]);
+  const settings = await pool.query(
+    `SELECT support_reply_notify_admin, support_reply_notify_employee,
+            support_reply_email_admin, support_reply_email_employee
+     FROM company_notification_settings WHERE company_id = $1`,
+    [ticket.company_id]
+  );
   const s = settings.rows[0] || {};
+  const subject = `תגובה חדשה מ-TreeTime בפנייה: ${ticket.subject}`;
   if (s.support_reply_notify_admin !== false) {
-    notifyAdmins(ticket.company_id, 'ticket_owner_reply', `תגובה חדשה מ-TreeTime בפנייה: ${ticket.subject}`, req.body.body, 'support');
+    notifyAdmins(ticket.company_id, 'ticket_owner_reply', subject, req.body.body, 'support');
   }
   if (s.support_reply_notify_employee && ticket.employee_id) {
-    notifyEmployee(ticket.employee_id, 'ticket_owner_reply', `תגובה חדשה מ-TreeTime בפנייה: ${ticket.subject}`, req.body.body, 'support');
+    notifyEmployee(ticket.employee_id, 'ticket_owner_reply', subject, req.body.body, 'support');
+  }
+  if (s.support_reply_email_admin) {
+    sendAdminEmails(ticket.company_id, subject, req.body.body).catch(() => {});
+  }
+  if (s.support_reply_email_employee && ticket.employee_id) {
+    sendEmployeeEmailById(ticket.employee_id, subject, req.body.body).catch(() => {});
   }
 
   res.status(201).json(rows[0]);

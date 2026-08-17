@@ -11,6 +11,13 @@ const DEFAULTS = {
   edit_request_notify_admin: true,
   support_reply_notify_admin: true,
   support_reply_notify_employee: false,
+  // "Also by email" toggles, alongside each in-app one above. Default off --
+  // email is more intrusive than the in-app bell, so it's opt-in.
+  quota80_email_admin: false,
+  quota80_email_employee: false,
+  edit_request_email_admin: false,
+  support_reply_email_admin: false,
+  support_reply_email_employee: false,
 };
 
 /**
@@ -40,18 +47,26 @@ router.patch('/', requireRole('admin'), async (req, res) => {
   const {
     quota80_notify_admin, quota80_notify_employee, edit_request_notify_admin,
     support_reply_notify_admin, support_reply_notify_employee,
+    quota80_email_admin, quota80_email_employee, edit_request_email_admin,
+    support_reply_email_admin, support_reply_email_employee,
   } = merged;
   const { rows } = await pool.query(
     `INSERT INTO company_notification_settings (
        company_id, quota80_notify_admin, quota80_notify_employee, edit_request_notify_admin,
-       support_reply_notify_admin, support_reply_notify_employee
-     ) VALUES ($1,$2,$3,$4,$5,$6)
+       support_reply_notify_admin, support_reply_notify_employee,
+       quota80_email_admin, quota80_email_employee, edit_request_email_admin,
+       support_reply_email_admin, support_reply_email_employee
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (company_id) DO UPDATE SET
        quota80_notify_admin = $2, quota80_notify_employee = $3, edit_request_notify_admin = $4,
-       support_reply_notify_admin = $5, support_reply_notify_employee = $6, updated_at = now()
+       support_reply_notify_admin = $5, support_reply_notify_employee = $6,
+       quota80_email_admin = $7, quota80_email_employee = $8, edit_request_email_admin = $9,
+       support_reply_email_admin = $10, support_reply_email_employee = $11, updated_at = now()
      RETURNING *`,
     [req.auth.companyId, !!quota80_notify_admin, !!quota80_notify_employee, !!edit_request_notify_admin,
-     !!support_reply_notify_admin, !!support_reply_notify_employee]
+     !!support_reply_notify_admin, !!support_reply_notify_employee,
+     !!quota80_email_admin, !!quota80_email_employee, !!edit_request_email_admin,
+     !!support_reply_email_admin, !!support_reply_email_employee]
   );
   res.json(rows[0]);
 });

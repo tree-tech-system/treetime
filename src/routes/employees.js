@@ -6,6 +6,7 @@ const multer = require('multer');
 const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireRole, requireScope } = require('../middleware/auth');
+const { sendWelcomeEmail } = require('../lib/authEmails');
 
 const router = express.Router();
 router.use(authenticate);
@@ -128,6 +129,7 @@ router.post(
           bank_branch || null, bank_account || null, bank_tax_id || null,
         ]
       );
+      sendWelcomeEmail(rows[0], null).catch(() => {});
       res.status(201).json(rows[0]);
     } catch (err) {
       if (err.code === '23505') return res.status(409).json({ error: 'email_taken' });
