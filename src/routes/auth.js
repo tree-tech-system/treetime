@@ -4,6 +4,8 @@ const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
+const { consumeAuthToken } = require('../lib/authTokens');
+const { sendWelcomeEmail, sendPasswordResetEmail, sendPasswordChangedEmail } = require('../lib/authEmails');
 
 const router = express.Router();
 
@@ -62,6 +64,7 @@ router.post(
         [full_name, email, password_hash, company_id]
       );
       const employee = rows[0];
+      sendWelcomeEmail(employee, null).catch(() => {});
       res.status(201).json({ token: signToken(employee), employee });
     } catch (err) {
       if (err.code === '23505') return res.status(409).json({ error: 'email_taken', message: 'Email already registered.' });
@@ -165,8 +168,104 @@ router.post(
     }
     const password_hash = await bcrypt.hash(req.body.new_password, 12);
     await pool.query('UPDATE employees SET password_hash = $1 WHERE id = $2', [password_hash, employee.id]);
+    sendPasswordChangedEmail(employee).catch(() => {});
     res.json({ ok: true });
   }
 );
+
+/**
+ * @openapi
+ * /api/auth/forgot-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Request a password reset link by email
+ *     description: >
+ *       Always responds with a generic success message, whether or not the email is
+ *       registered, so this endpoint can't be used to check which emails have accounts.
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email: { type: string, format: email }
+ *     responses:
+ *       200: { description: Always returns ok, regardless of whether the email exists }
+ */
+router.post('/forgot-password', body('email').isEmail(), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'validation_error', details: errors.array() });
+
+  const { rows } = await pool.query('SELECT * FROM employees WHERE email = $1 AND active = TRUE', [req.body.email]);
+  if (rows[0]) sendPasswordResetEmail(rows[0]).catch(() => {});
+  res.json({ ok: true, message: 'אם קיים חשבון עם האימייל הזה, נשלח אליו קישור לאיפוס סיסמה.' });
+});
+
+/**
+ * @openapi
+ * /api/auth/reset-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Set a new password using a token from the forgot-password email
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token, new_password]
+ *             properties:
+ *               token: { type: string }
+ *               new_password: { type: string, minLength: 8 }
+ *     responses:
+ *       200: { description: Password reset }
+ *       400: { description: Token is invalid, expired, or already used }
+ */
+router.post(
+  '/reset-password',
+  body('token').isString().notEmpty(),
+  body('new_password').isString().isLength({ min: 8 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'validation_error', details: errors.array() });
+
+    const employeeId = await consumeAuthToken(req.body.token, 'password_reset');
+    if (!employeeId) return res.status(400).json({ error: 'invalid_token', message: 'הקישור פג תוקף או שכבר נוצל. יש לבקש קישור חדש.' });
+
+    const password_hash = await bcrypt.hash(req.body.new_password, 12);
+    const { rows } = await pool.query('UPDATE employees SET password_hash = $1 WHERE id = $2 RETURNING *', [password_hash, employeeId]);
+    sendPasswordChangedEmail(rows[0]).catch(() => {});
+    res.json({ ok: true });
+  }
+);
+
+/**
+ * @openapi
+ * /api/auth/confirm-email:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Confirm an employee's email address using a token from the welcome email
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token: { type: string }
+ *     responses:
+ *       200: { description: Email confirmed }
+ *       400: { description: Token is invalid, expired, or already used }
+ */
+router.post('/confirm-email', body('token').isString().notEmpty(), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'validation_error', details: errors.array() });
+
+  const employeeId = await consumeAuthToken(req.body.token, 'email_confirm');
+  if (!employeeId) return res.status(400).json({ error: 'invalid_token', message: 'הקישור פג תוקף או שכבר נוצל.' });
+
+  await pool.query('UPDATE employees SET email_confirmed_at = now() WHERE id = $1', [employeeId]);
+  res.json({ ok: true });
+});
 
 module.exports = router;

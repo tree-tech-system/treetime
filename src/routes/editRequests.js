@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { notifyAdmins, notifyEmployee } = require('../lib/notify');
+const { sendAdminEmails } = require('../lib/mailer');
 
 const router = express.Router();
 router.use(authenticate);
@@ -64,10 +65,20 @@ router.post('/', body('entry_id').isInt(), body('reason').isString().trim().notE
     [req.auth.companyId, req.body.entry_id, req.auth.employeeId, req.body.reason]
   );
 
-  const settings = await pool.query('SELECT edit_request_notify_admin FROM company_notification_settings WHERE company_id = $1', [req.auth.companyId]);
-  if (settings.rows[0]?.edit_request_notify_admin !== false) {
+  const settings = await pool.query(
+    'SELECT edit_request_notify_admin, edit_request_email_admin FROM company_notification_settings WHERE company_id = $1',
+    [req.auth.companyId]
+  );
+  const s = settings.rows[0] || {};
+  if (s.edit_request_notify_admin !== false || s.edit_request_email_admin) {
     const emp = await pool.query('SELECT full_name FROM employees WHERE id = $1', [req.auth.employeeId]);
-    notifyAdmins(req.auth.companyId, 'edit_request', 'בקשת עריכת דיווח חדשה', `${emp.rows[0].full_name}: ${req.body.reason}`, 'editRequests');
+    const summary = `${emp.rows[0].full_name}: ${req.body.reason}`;
+    if (s.edit_request_notify_admin !== false) {
+      notifyAdmins(req.auth.companyId, 'edit_request', 'בקשת עריכת דיווח חדשה', summary, 'editRequests');
+    }
+    if (s.edit_request_email_admin) {
+      sendAdminEmails(req.auth.companyId, 'בקשת עריכת דיווח חדשה', summary).catch(() => {});
+    }
   }
 
   res.status(201).json(rows[0]);

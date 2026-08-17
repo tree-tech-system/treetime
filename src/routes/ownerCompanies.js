@@ -6,6 +6,7 @@ const pool = require('../db/pool');
 const { authenticate, requireOwner, requireOwnerScope } = require('../middleware/auth');
 const { generateSlug } = require('../lib/slug');
 const { seedDefaultWidgets } = require('../lib/defaultWidgets');
+const { sendWelcomeEmail } = require('../lib/authEmails');
 
 async function uniqueSlug(client) {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -147,6 +148,7 @@ router.post(
       await seedDefaultWidgets(client, company.id);
 
       await client.query('COMMIT');
+      sendWelcomeEmail(employeeRes.rows[0], company.name).catch(() => {});
       res.status(201).json({ company, admin: employeeRes.rows[0] });
     } catch (err) {
       await client.query('ROLLBACK');

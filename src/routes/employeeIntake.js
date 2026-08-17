@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { notifyAdmins } = require('../lib/notify');
+const { sendWelcomeEmail } = require('../lib/authEmails');
 
 const router = express.Router();
 
@@ -163,6 +164,7 @@ router.post(
 
       await client.query('COMMIT');
       notifyAdmins(link.company_id, 'employee_intake', 'עובד חדש נרשם דרך לינק עצמאי', employee.full_name, 'freelancers');
+      sendWelcomeEmail({ ...employee, email }, null).catch(() => {});
       res.status(201).json({ ok: true });
     } catch (err) {
       await client.query('ROLLBACK');
