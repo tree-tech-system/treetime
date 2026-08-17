@@ -636,7 +636,7 @@ function seedData(){
 let state = {
   freelancers: [], clients: [], entries: [], activeTimers: [],
   editRequests: [], supportTickets: [], clientFields: [], intakeLinks: [],
-  employeeFields: [], employeeIntakeLinks: [], notifications: [], tasks: [],
+  employeeFields: [], employeeIntakeLinks: [], notifications: [], tasks: [], dashboardWidgets: [],
   notificationSettings: { quota80_notify_admin:true, quota80_notify_employee:false, edit_request_notify_admin:true, support_reply_notify_admin:true, support_reply_notify_employee:false },
   currentUserId: null, currentRole: 'freelancer',
   settings: { autoCloseEnabled:false, autoCloseMode:'hours', autoCloseAfterHours:8, autoCloseTime:'23:00' },
@@ -888,7 +888,7 @@ function mapTask(t){
 }
 
 async function refreshData(){
-  const [employees, projects, entries, editRequests, clientFields, intakeLinks, notificationSettings, employeeFields, employeeIntakeLinks, tickets, notifications, tasks] = await Promise.all([
+  const [employees, projects, entries, editRequests, clientFields, intakeLinks, notificationSettings, employeeFields, employeeIntakeLinks, tickets, notifications, tasks, dashboardWidgets] = await Promise.all([
     apiCall('/employees'),
     apiCall('/projects'),
     apiCall('/time-entries'),
@@ -901,6 +901,10 @@ async function refreshData(){
     apiCall('/tickets'),
     apiCall('/notifications'),
     apiCall('/tasks'),
+    // Frontend and backend deploy as two independent, unsynchronized CI jobs, so there's
+    // a brief window right after a push where this endpoint (or its migration) might not
+    // exist on the server yet. Isolate it so that window can't break login for everyone.
+    apiCall('/dashboard-widgets').catch(() => []),
   ]);
   state.freelancers = employees.map(mapFreelancer);
   state.clients = projects.map(mapClient);
@@ -915,6 +919,7 @@ async function refreshData(){
   state.notifications = notifications;
   state.supportTickets = tickets.map(mapTicket);
   state.tasks = tasks.map(mapTask);
+  state.dashboardWidgets = dashboardWidgets;
 }
 
 async function boot(){
@@ -1634,8 +1639,315 @@ function renderDashboard(){
       <div id="allTimersWrap">
       </div>
     </div>
+
+    ${renderDashboardWidgetsSection()}
   `;
   return html;
+}
+
+/* ---------------------------- CUSTOM DASHBOARD WIDGETS ---------------------------- */
+
+const KPI_NUMERIC_FIELDS = {
+  time_entries: [{ value: 'duration_hours', label: 'שעות' }, { value: 'cost', label: 'עלות (₪)' }],
+  projects: [{ value: 'monthly_quota_hours', label: 'מכסת שעות חודשית' }, { value: 'hourly_rate', label: 'תעריף לשעה' }],
+  employees: [{ value: 'hourly_rate', label: 'תעריף לשעה' }],
+  tasks: [],
+};
+
+function renderDashboardWidgetsSection(){
+  const admin = isAdmin();
+  const widgets = state.dashboardWidgets || [];
+  return `
+    <div class="panel" style="margin-top:18px;">
+      <div class="panel-head">
+        <h3>הדשבורד שלי</h3>
+        ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openAddKpiWidgetModal()">${ICON.plus} הוסף KPI</button>` : ''}
+      </div>
+      <div class="panel-pad" style="display:flex; flex-direction:column; gap:12px;">
+        ${widgets.length
+          ? widgets.map((w,i)=>renderOneDashboardWidget(w,i,widgets.length,admin)).join('')
+          : `<div class="cell-muted">עדיין אין widgets בדשבורד.${admin?' לחץ "הוסף KPI" למעלה, או "שמור תצוגה כ-widget" בעמוד דיווחי עבודה / משימות.':''}</div>`}
+      </div>
+    </div>
+  `;
+}
+
+function renderOneDashboardWidget(w, i, total, admin){
+  const controls = admin ? `
+    <div style="display:flex; gap:4px; flex-shrink:0;">
+      ${i>0?`<button class="icon-btn" title="הזז למעלה" onclick="moveDashboardWidget(${w.id},-1)">↑</button>`:''}
+      ${i<total-1?`<button class="icon-btn" title="הזז למטה" onclick="moveDashboardWidget(${w.id},1)">↓</button>`:''}
+      <button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>
+    </div>` : '';
+
+  if(w.type==='kpi'){
+    const val = (w.value===null || w.value===undefined) ? '—' : (Number.isInteger(w.value) ? w.value : w.value.toFixed(1));
+    return `
+      <div class="panel" style="padding:14px 16px; display:flex; align-items:center; justify-content:space-between;">
+        <div><div class="cell-muted" style="font-size:12.5px;">${w.title}</div><div style="font-size:26px; font-weight:800;">${val}</div></div>
+        ${controls}
+      </div>`;
+  }
+  return `
+    <div class="panel" style="padding:14px 16px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+        <div style="font-weight:700;">${w.title}</div>
+        ${controls}
+      </div>
+      <div id="widgetList-${w.id}" class="cell-muted">טוען...</div>
+    </div>`;
+}
+
+async function renderDashboardWidgetLists(){
+  const listWidgets = (state.dashboardWidgets||[]).filter(w=>w.type==='list');
+  for(const w of listWidgets){
+    const wrap = document.getElementById(`widgetList-${w.id}`);
+    if(!wrap) continue;
+    try{
+      const rows = await fetchListWidgetRows(w.config);
+      wrap.innerHTML = renderListWidgetRows(w.config.source, rows);
+    }catch(err){
+      wrap.innerHTML = `<span style="color:var(--red);">שגיאה בטעינה: ${err.message}</span>`;
+    }
+  }
+}
+
+async function fetchListWidgetRows(config){
+  const f = config.filters || {};
+  if(config.source==='time_entries'){
+    const qs = new URLSearchParams();
+    if(f.employee_id) qs.set('employee_id', f.employee_id);
+    if(f.project_id) qs.set('project_id', f.project_id);
+    if(f.date_from) qs.set('from', f.date_from);
+    if(f.date_to) qs.set('to', f.date_to);
+    const rows = await apiCall(`/time-entries?${qs.toString()}`);
+    return rows.slice(0,10);
+  }
+  if(config.source==='tasks'){
+    const qs = new URLSearchParams();
+    if(f.employee_id) qs.set('employee_id', f.employee_id);
+    if(f.status) qs.set('status', f.status);
+    let rows = await apiCall(`/tasks?${qs.toString()}`);
+    // project_id and date range aren't server-side filters on /api/tasks -- mirror the
+    // same client-side filtering renderTasksPage already does for those two.
+    if(f.project_id) rows = rows.filter(t=>String(t.project_id)===String(f.project_id));
+    if(f.date_from) rows = rows.filter(t=>t.deadline && t.deadline>=f.date_from);
+    if(f.date_to) rows = rows.filter(t=>t.deadline && t.deadline<=f.date_to);
+    return rows.slice(0,10);
+  }
+  return [];
+}
+
+function renderListWidgetRows(source, rows){
+  if(!rows.length) return '<span class="cell-muted">אין תוצאות עבור הסינון הזה</span>';
+  if(source==='time_entries'){
+    return `<table><thead><tr><th>תאריך</th><th>עובד</th><th>לקוח</th><th>שעות</th></tr></thead><tbody>
+      ${rows.map(e=>{
+        const f=getFreelancer(String(e.employee_id)), c=e.project_id?getClient(String(e.project_id)):null;
+        const hrs = e.ended_at ? ((new Date(e.ended_at)-new Date(e.started_at))/3600000).toFixed(1) : '—';
+        return `<tr><td class="cell-muted">${fmtDateHe(e.started_at.slice(0,10))}</td><td>${f?.name||'—'}</td><td>${c?clientDisplayName(c):'—'}</td><td class="mono">${hrs}</td></tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+  if(source==='tasks'){
+    return `<table><thead><tr><th>תיאור</th><th>עובד</th><th>סטטוס</th><th>דדליין</th></tr></thead><tbody>
+      ${rows.map(t=>{
+        const f=t.employee_id?getFreelancer(String(t.employee_id)):null;
+        return `<tr><td>${t.description}</td><td>${f?.name||'—'}</td><td>${TASK_STATUS_LABEL[t.status]||t.status}</td><td class="cell-muted">${t.deadline?fmtDateHe(t.deadline):'—'}</td></tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+  return '';
+}
+
+let pendingListWidgetSource = null;
+let pendingListWidgetFilters = null;
+
+function openSaveListWidgetModal(source, filters){
+  pendingListWidgetSource = source;
+  pendingListWidgetFilters = filters;
+  openModal(`
+    <div class="modal-head"><h3>שמור תצוגה כ-widget</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>כותרת ל-widget</label><input type="text" id="listWidgetTitle" placeholder="לדוגמה: שעות פתוחות החודש"></div>
+      <div class="hint">התצוגה תישמר עם הסינון הנוכחי שלה בדיוק כפי שהוא עכשיו, ותופיע בדשבורד הראשי.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" onclick="saveListWidget()">${ICON.check} שמור</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+    </div>
+  `);
+}
+
+async function saveListWidget(){
+  const title = document.getElementById('listWidgetTitle').value.trim();
+  if(!title){ toast('צריך כותרת ל-widget'); return; }
+  const cleanFilters = Object.fromEntries(Object.entries(pendingListWidgetFilters||{}).filter(([,v])=>v!==undefined && v!==''));
+  try{
+    await apiCall('/dashboard-widgets', { method:'POST', body: JSON.stringify({ type:'list', title, config: { source: pendingListWidgetSource, filters: cleanFilters } }) });
+    closeModal();
+    toast('נוסף לדשבורד הראשי');
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+function openAddKpiWidgetModal(){
+  openModal(`
+    <div class="modal-head"><h3>הוסף KPI לדשבורד</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>כותרת</label><input type="text" id="kpiTitle" placeholder="לדוגמה: שעות החודש"></div>
+      <div class="field-row">
+        <div class="field">
+          <label>מקור נתונים</label>
+          <select id="kpiSource" onchange="onKpiSourceChange()">
+            <option value="time_entries">דיווחי עבודה</option>
+            <option value="projects">לקוחות</option>
+            <option value="employees">עובדים</option>
+            <option value="tasks">משימות</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>סוג חישוב</label>
+          <select id="kpiAgg" onchange="onKpiAggChange()">
+            <option value="sum">סכום</option>
+            <option value="avg">ממוצע</option>
+            <option value="count">ספירה</option>
+            <option value="min">מינימום</option>
+            <option value="max">מקסימום</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="kpiFieldWrap">
+        <label>שדה לחישוב</label>
+        <select id="kpiField"></select>
+      </div>
+
+      <div class="hint" style="margin:10px 0 4px;">סינון (הכל אופציונלי):</div>
+      <div class="field-row">
+        <div class="field"><label>מתאריך</label><input type="date" id="kpiFrom"></div>
+        <div class="field"><label>עד תאריך</label><input type="date" id="kpiTo"></div>
+      </div>
+      <div class="field-row" data-source-only="time_entries,tasks">
+        <div class="field">
+          <label>עובד</label>
+          <select id="kpiEmployee"><option value="">הכל</option>${state.freelancers.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}</select>
+        </div>
+        <div class="field">
+          <label>לקוח</label>
+          <select id="kpiProject"><option value="">הכל</option>${state.clients.map(c=>`<option value="${c.id}">${clientDisplayName(c)}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="field" data-source-only="tasks">
+        <label>סטטוס משימה</label>
+        <select id="kpiStatus"><option value="">הכל</option>${Object.entries(TASK_STATUS_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+      </div>
+      <div class="field" data-source-only="projects">
+        <label>אמצעי תשלום</label>
+        <select id="kpiPaymentMethod"><option value="">הכל</option><option value="hourly">שעתי</option><option value="hours_bank">בנק שעות</option></select>
+      </div>
+      <div class="field" data-source-only="employees">
+        <label>תפקיד</label>
+        <select id="kpiRole"><option value="">הכל</option><option value="admin">אדמין</option><option value="employee">עובד</option></select>
+      </div>
+
+      <div class="hint" id="kpiPreviewResult" style="margin-top:14px; font-weight:700;"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="previewKpiWidget()">בדוק תוצאה</button>
+      <button class="btn btn-primary" onclick="saveKpiWidget()">${ICON.check} שמור ל-דשבורד</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+    </div>
+  `);
+  onKpiSourceChange();
+}
+
+function onKpiSourceChange(){
+  const source = document.getElementById('kpiSource').value;
+  document.querySelectorAll('[data-source-only]').forEach(el=>{
+    const allowed = el.dataset.sourceOnly.split(',');
+    el.style.display = allowed.includes(source) ? '' : 'none';
+  });
+  onKpiAggChange();
+}
+
+function onKpiAggChange(){
+  const source = document.getElementById('kpiSource').value;
+  const agg = document.getElementById('kpiAgg').value;
+  const wrap = document.getElementById('kpiFieldWrap');
+  const fieldSelect = document.getElementById('kpiField');
+  if(agg==='count'){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const fields = KPI_NUMERIC_FIELDS[source] || [];
+  fieldSelect.innerHTML = fields.length
+    ? fields.map(f=>`<option value="${f.value}">${f.label}</option>`).join('')
+    : '<option value="">אין שדה מספרי למקור הזה — בחר "ספירה"</option>';
+}
+
+function collectKpiConfig(){
+  const source = document.getElementById('kpiSource').value;
+  const aggregation = document.getElementById('kpiAgg').value;
+  const field = aggregation==='count' ? undefined : (document.getElementById('kpiField').value || undefined);
+  const filters = {};
+  const from = document.getElementById('kpiFrom').value; if(from) filters.date_from = from;
+  const to = document.getElementById('kpiTo').value; if(to) filters.date_to = to;
+  if(['time_entries','tasks'].includes(source)){
+    const emp = document.getElementById('kpiEmployee').value; if(emp) filters.employee_id = emp;
+    const proj = document.getElementById('kpiProject').value; if(proj) filters.project_id = proj;
+  }
+  if(source==='tasks'){
+    const status = document.getElementById('kpiStatus').value; if(status) filters.status = status;
+  }
+  if(source==='projects'){
+    const pm = document.getElementById('kpiPaymentMethod').value; if(pm) filters.payment_method = pm;
+  }
+  if(source==='employees'){
+    const role = document.getElementById('kpiRole').value; if(role) filters.role = role;
+  }
+  return { data_source: source, aggregation, field, filters };
+}
+
+async function previewKpiWidget(){
+  const resultEl = document.getElementById('kpiPreviewResult');
+  resultEl.textContent = 'מחשב...';
+  try{
+    const { value } = await apiCall('/dashboard-widgets/kpi/preview', { method:'POST', body: JSON.stringify(collectKpiConfig()) });
+    resultEl.textContent = `תוצאה: ${Number.isInteger(value)?value:value.toFixed(2)}`;
+  }catch(err){ resultEl.textContent = 'שגיאה: '+err.message; }
+}
+
+async function saveKpiWidget(){
+  const title = document.getElementById('kpiTitle').value.trim();
+  if(!title){ toast('צריך כותרת ל-widget'); return; }
+  try{
+    await apiCall('/dashboard-widgets', { method:'POST', body: JSON.stringify({ type:'kpi', title, config: collectKpiConfig() }) });
+    closeModal();
+    toast('נוסף לדשבורד');
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+async function removeDashboardWidget(id){
+  if(!confirm('להסיר את ה-widget מהדשבורד?')) return;
+  try{
+    await apiCall(`/dashboard-widgets/${id}`, { method:'DELETE' });
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+async function moveDashboardWidget(id, direction){
+  const widgets = [...(state.dashboardWidgets||[])];
+  const idx = widgets.findIndex(w=>w.id===id);
+  const swapIdx = idx + direction;
+  if(idx<0 || swapIdx<0 || swapIdx>=widgets.length) return;
+  [widgets[idx], widgets[swapIdx]] = [widgets[swapIdx], widgets[idx]];
+  try{
+    await apiCall('/dashboard-widgets/reorder', { method:'POST', body: JSON.stringify({ order: widgets.map(w=>w.id) }) });
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
 }
 
 /* ---------------------------- PAGE: TIMER ---------------------------- */
@@ -2393,6 +2705,7 @@ function renderReportsPage(){
         <input type="date" id="fFrom" value="${reportFilters.from}">
         <input type="date" id="fTo" value="${reportFilters.to}">
         <button class="btn btn-ghost btn-sm" onclick="clearFilters()">נקה סינון</button>
+        ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openSaveListWidgetModal('time_entries', {employee_id: reportFilters.freelancerId||undefined, project_id: reportFilters.clientId||undefined, date_from: reportFilters.from||undefined, date_to: reportFilters.to||undefined})">${ICON.plus} שמור תצוגה כ-widget</button>` : ''}
         <div style="margin-right:auto; align-self:center; display:flex; gap:16px;" class="cell-muted">
           <span>סה״כ זמן: <b style="color:var(--ink);">${fmtMinutes(totalMin)}</b></span>
           <span>סה״כ עלות: <b style="color:var(--ink);">${fmtCurrency(totalCost)}</b></span>
@@ -3443,6 +3756,7 @@ function renderTasksPage(){
         <input type="date" id="tfFilterFrom" value="${taskFilters.from}">
         <input type="date" id="tfFilterTo" value="${taskFilters.to}">
         <button class="btn btn-ghost btn-sm" onclick="clearTaskFilters()">נקה סינון</button>
+        ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openSaveListWidgetModal('tasks', {employee_id: taskFilters.freelancerId||undefined, project_id: taskFilters.clientId||undefined, date_from: taskFilters.from||undefined, date_to: taskFilters.to||undefined})">${ICON.plus} שמור תצוגה כ-widget</button>` : ''}
       </div>
     </div>
 
@@ -4034,6 +4348,7 @@ function renderAll(){
 
   if(activePage==='dashboard' && isAdmin()){
     renderTimerLists();
+    renderDashboardWidgetLists();
   }
   if(activePage==='reports'){
     bindReportFilters();

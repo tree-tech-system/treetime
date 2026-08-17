@@ -24,7 +24,7 @@ Employee — עובד עם role='employee', רואה/מדווח רק על עצמ
 src/
   server.js              נקודת כניסה, רישום כל ה-routes
   db/pool.js              pg connection pool
-  db/migrations/          002–021, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
+  db/migrations/          002–022, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
   db/schema.sql            דאמפ סכמה מלא
   middleware/auth.js       authenticate, requireRole, requireScope, requireOwner
   lib/notify.js            fan-out התראות (notifyOwners/notifyAdmins/notifyEmployee)
@@ -121,6 +121,18 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 | `ownerAuth.js` / `ownerCompanies.js` / `ownerTickets.js` | פאנל סופר-אדמין: התחברות, ניהול חברות + impersonate, תמיכה |
 | `adminSignupLinks.js` | לינק חד-פעמי מסופר-אדמין לפתיחת חברה חדשה |
 | `ownerApiKeys.js` | מפתחות API ברמת owner, מוגבלים ל-scope ספציפי (ראו "גישת API לאוטומציה" למטה) |
+| `dashboardWidgets.js` | דשבורד מותאם אישית לאדמין — KPI + widgets מסוג רשימה (ראו "דשבורד מותאם אישית" למטה) |
+
+### דשבורד מותאם אישית לאדמין (17.8.2026)
+
+אדמין בכל חברה יכול לבנות לעצמו דשבורד עם שני סוגי widgets, בעמוד "דשבורד ראשי" ב-`index.html` (לא בפאנל ה-owner):
+
+- **KPI — בונה חופשי, לא רשימה סגורה.** אדמין בוחר מקור נתונים (`time_entries`/`projects`/`employees`/`tasks`) + סוג צבירה (`sum`/`avg`/`count`/`min`/`max`) + שדה + סינון, ורואה תוצאה חיה לפני שמירה (`POST /api/dashboard-widgets/kpi/preview`).
+  - **מנגנון הבטיחות:** `src/lib/kpiEngine.js` — allowlist קשיח של טבלאות/שדות/פילטרים מותרים לכל מקור. שום מחרוזת מה-request לא הופכת ל-SQL גולמי; רק ל-`$N` params. `company_id = $1` תמיד מוזרק קשיח בקוד, **לעולם לא** דרך ה-config של האדמין — כלומר גם "בונה חופשי" לא יכול לחצות בין חברות.
+  - הרחבת מקור/שדה/פילטר חדש = עריכת ה-allowlist ב-`kpiEngine.js` בלבד, לא נגיעה ב-routes.
+- **רשימה — מרחיבה מסכים קיימים, לא טבלה חדשה.** כפתור "שמור תצוגה כ-widget" בעמודי "דיווחי עבודה" ו"משימות" שומר את מצב הסינון הנוכחי (`reportFilters`/`taskFilters`) כ-`config` על ה-widget. בזמן רינדור, ה-widget קורא ל-**אותם** endpoints קיימים (`/api/time-entries`, `/api/tasks`) עם אותם query params — אין endpoint חדש לרשימות. לוקוחות (`projects`) עדיין לא מחובר לזה — לא התבקש עדיין.
+- **מבנה:** דשבורד אחד לחברה, `dashboard_widgets` (migration 022, `type`/`title`/`config` JSONB/`position`), רשימה מסודרת בלבד — אין drag & drop grid. `GET /api/dashboard-widgets` מחזיר גם `value` מחושב לכל KPI widget inline (נמנע מ-N+1 קריאות ברינדור).
+- הרשאות: כתיבה (`POST`/`PATCH`/`DELETE`/`reorder`) = `requireRole('admin')` בלבד. קריאה = כל מי שמחובר לחברה (כרגע רק אדמין רואה בפועל, כי ה-widgets מוצגים רק ב-`renderDashboard()` שהיא admin-only — עדיין לא הורחב ל-`renderPersonalDashboard()` של עובד).
 
 ### גישת API לאוטומציה (owner-level, לא company-level)
 
