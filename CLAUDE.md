@@ -24,7 +24,7 @@ Employee — עובד עם role='employee', רואה/מדווח רק על עצמ
 src/
   server.js              נקודת כניסה, רישום כל ה-routes
   db/pool.js              pg connection pool
-  db/migrations/          002–022, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
+  db/migrations/          002–023, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
   db/schema.sql            דאמפ סכמה מלא
   middleware/auth.js       authenticate, requireRole, requireScope, requireOwner
   lib/notify.js            fan-out התראות (notifyOwners/notifyAdmins/notifyEmployee)
@@ -131,7 +131,12 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
   - **מנגנון הבטיחות:** `src/lib/kpiEngine.js` — allowlist קשיח של טבלאות/שדות/פילטרים מותרים לכל מקור. שום מחרוזת מה-request לא הופכת ל-SQL גולמי; רק ל-`$N` params. `company_id = $1` תמיד מוזרק קשיח בקוד, **לעולם לא** דרך ה-config של האדמין — כלומר גם "בונה חופשי" לא יכול לחצות בין חברות.
   - הרחבת מקור/שדה/פילטר חדש = עריכת ה-allowlist ב-`kpiEngine.js` בלבד, לא נגיעה ב-routes.
 - **רשימה — מרחיבה מסכים קיימים, לא טבלה חדשה.** כפתור "שמור תצוגה כ-widget" בעמודי "דיווחי עבודה" ו"משימות" שומר את מצב הסינון הנוכחי (`reportFilters`/`taskFilters`) כ-`config` על ה-widget. בזמן רינדור, ה-widget קורא ל-**אותם** endpoints קיימים (`/api/time-entries`, `/api/tasks`) עם אותם query params — אין endpoint חדש לרשימות. לוקוחות (`projects`) עדיין לא מחובר לזה — לא התבקש עדיין.
-- **מבנה:** דשבורד אחד לחברה, `dashboard_widgets` (migration 022, `type`/`title`/`config` JSONB/`position`), רשימה מסודרת בלבד — אין drag & drop grid. `GET /api/dashboard-widgets` מחזיר גם `value` מחושב לכל KPI widget inline (נמנע מ-N+1 קריאות ברינדור).
+- **מבנה:** דשבורד אחד לחברה, `dashboard_widgets` (migration 022, `type`/`title`/`config` JSONB/`position`), רשימה מסודרת בלבד — אין drag & drop grid (KPI tiles כן מסתדרים ב-flex-wrap ויזואלית, אבל הסדר עדיין נשלט רק ע"י חצי למעלה/למטה, לא גרירה חופשית). `GET /api/dashboard-widgets` מחזיר גם `value` מחושב לכל KPI widget inline (נמנע מ-N+1 קריאות ברינדור).
+- **עריכה, לא רק יצירה/מחיקה/סידור.** `PATCH /api/dashboard-widgets/:id` מקבל גם `config` (לא רק `title`/`position`) ומריץ מולו את אותו ולידציה של `evaluateKpi` לפני שמירה. בפרונט: כפתור עפרון על כל KPI widget פותח את אותו מודאל בנייה, ממולא מראש (`applyKpiPrefill`), ושומר ב-PATCH במקום POST.
+- **שני מקורות "relation" נוספים (18.8.2026), לא בתוך ה-allowlist הגנרי:** `clients_usage` (שעות שנרשמו ללקוח מול `monthly_quota_hours` שלו, עם סף אחוזים) ו-`employees_activity` (שעות שנרשמו לעובד + דיווח אחרון). אלה דורשים JOIN+GROUP BY ולא מתאימים למנוע הגנרי החד-טבלאי — פונקציות ייעודיות ב-`kpiEngine.js` (`evaluateClientsUsage`/`evaluateEmployeesActivity`), עדיין פרמטריות/מסוננות ל-company_id באותו אופן. גם כ-KPI (ספירה מעל סף) וגם כ-widget מסוג רשימה, דרך `/api/dashboard-widgets/relations/clients-usage` ו-`/relations/employees-activity` (אלה כן endpoints חדשים — לא מתאימים לעקרון "הרחב מסך קיים" כי אין מסך כזה קיים).
+- **תאריכים יחסיים:** `date_from`/`date_to` מקבלים גם `"this_month_start"`/`"today"` (מתורגם טרי בכל קריאה ב-`resolveDateValue`), לא רק תאריך מוחלט — כדי ש-widget שמור לא יתיישן ("החודש הנוכחי" תמיד יהיה החודש הנוכחי האמיתי).
+- **`status` filter על time_entries:** `open`/`completed`/`all`, override ל-`baseWhere` הדיפולטיבי (`ended_at IS NOT NULL`) — כדי לתמוך גם ב-KPI כמו "שעונים פתוחים כרגע".
+- **הכרטיסים הקבועים הישנים של הדשבורד הפכו ל-widgets רגילים (18.8.2026, migration 023 + `src/lib/defaultWidgets.js`).** 4 ה-KPI וה-2 טבלאות/פאנל שהיו hardcoded ב-`renderDashboard()` (סה״כ שעות החודש, שעונים פתוחים, לקוחות מעל מכסה, עובדים פעילים, מכסת שעות ללקוח, פעילות עובדים, דיווחים אחרונים) הוסרו מהקוד הקשיח ומוזרעים כשורות `dashboard_widgets` רגילות — הן ל-19 החברות הקיימות (migration חד-פעמית) והן לכל חברה חדשה (`seedDefaultWidgets()` נקרא מ-`signup.js` ומ-`ownerCompanies.js` POST `/`, בתוך אותה טרנזקציה). ניתנות עכשיו להסרה/סידור/עריכה כמו כל widget אחר. **לא הומר:** גרף "מגמת שעות — 6 שבועות אחרונים" — זה time-series (כמה נקודות נתון), לא scalar KPI ולא רשימה — נשאר hardcoded בכוונה, ממתין ל-widget type שלישי (`trend`/`chart`) שעדיין לא נבנה.
 - הרשאות: כתיבה (`POST`/`PATCH`/`DELETE`/`reorder`) = `requireRole('admin')` בלבד. קריאה = כל מי שמחובר לחברה (כרגע רק אדמין רואה בפועל, כי ה-widgets מוצגים רק ב-`renderDashboard()` שהיא admin-only — עדיין לא הורחב ל-`renderPersonalDashboard()` של עובד).
 
 ### גישת API לאוטומציה (owner-level, לא company-level)

@@ -1454,14 +1454,11 @@ function onUserClientSearchInput(el){
 }
 
 function renderDashboard(){
-  const totalMin = totalMonthMinutes();
-  const activeCount = state.activeTimers.length;
   const overQuotaClients = state.clients.filter(c=>c.useHoursBank && c.monthlyQuota>0).map(c=>{
     const used = clientMonthMinutes(c.id);
     const pct = used/(c.monthlyQuota*60)*100;
     return {...c, used, pct};
   }).filter(c=>c.pct>=80);
-  const activeFreelancersThisMonth = state.freelancers.filter(f=>freelancerMonthMinutes(f.id)>0).length;
 
   // banners
   let banners = '';
@@ -1503,9 +1500,6 @@ function renderDashboard(){
     </div>`;
   }
 
-  // recent entries
-  const recent = [...state.entries].sort((a,b)=> (b.date+b.start).localeCompare(a.date+a.start)).slice(0,7);
-
   // weekly bars - last 6 weeks
   const weeks = [];
   for(let i=5;i>=0;i--){
@@ -1519,14 +1513,6 @@ function renderDashboard(){
   }
   const maxWeek = Math.max(1, ...weeks.map(w=>w.mins));
 
-  // freelancer activity
-  const freelancerRows = state.freelancers.map(f=>{
-    const mins = freelancerMonthMinutes(f.id);
-    const last = lastEntryDateFor(f.id);
-    const gap = daysSince(last);
-    return {...f, mins, last, gap};
-  }).sort((a,b)=>b.mins-a.mins);
-
   const html = `
     <div class="page-head">
       <div>
@@ -1537,97 +1523,18 @@ function renderDashboard(){
 
     ${banners}
 
-    <div class="grid grid-4" style="margin-bottom:18px;">
-      <div class="stat-card">
-        <div class="label"><span class="stat-icon" style="background:var(--green-soft);color:var(--green);">${ICON.clock}</span>סה״כ שעות החודש</div>
-        <div class="value">${fmtHoursShort(totalMin)}</div>
-        <div class="foot">${fmtMinutes(totalMin)} · עלות עובדים: ${fmtCurrency(monthCostTotal())}</div>
-      </div>
-      <div class="stat-card">
-        <div class="label"><span class="stat-icon" style="background:${activeCount?'var(--amber-soft)':'#EFEDE3'};color:${activeCount?'var(--amber)':'var(--muted)'};">${ICON.bolt}</span>שעונים פתוחים כרגע</div>
-        <div class="value">${activeCount}</div>
-        <div class="foot">${activeCount ? 'ראה פירוט למטה' : 'אין דיווחים פעילים כרגע'}</div>
-      </div>
-      <div class="stat-card">
-        <div class="label"><span class="stat-icon" style="background:${overQuotaClients.length?'var(--red-soft)':'#EFEDE3'};color:${overQuotaClients.length?'var(--red)':'var(--muted)'};">${ICON.alert}</span>לקוחות מעל 80% מכסה</div>
-        <div class="value">${overQuotaClients.length}</div>
-        <div class="foot">מתוך ${state.clients.filter(c=>c.useHoursBank && c.monthlyQuota>0).length} לקוחות עם בנק שעות מוגדר</div>
-      </div>
-      <div class="stat-card">
-        <div class="label"><span class="stat-icon" style="background:var(--green-soft);color:var(--green);">${ICON.freelancers}</span>עובדים פעילים החודש</div>
-        <div class="value">${activeFreelancersThisMonth}</div>
-        <div class="foot">מתוך ${state.freelancers.filter(f=>f.active).length} עובדים במערכת</div>
-      </div>
-    </div>
-
-    <div class="grid grid-2" style="margin-bottom:18px; align-items:start;">
-      <div class="panel">
-        <div class="panel-head"><h3>מגמת שעות — 6 שבועות אחרונים</h3></div>
-        <div class="panel-pad">
-          <div class="bars">
-            ${weeks.map(w=>`
-              <div class="bar-col">
-                <div class="bar-val">${w.mins? fmtHoursShort(w.mins):''}</div>
-                <div class="bar-wrap"><div class="bar" style="height:${Math.max(4,(w.mins/maxWeek*100))}%;"></div></div>
-                <div class="bar-label">${w.label}</div>
-              </div>
-            `).join('')}
-          </div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="panel-head"><h3>מגמת שעות — 6 שבועות אחרונים</h3></div>
+      <div class="panel-pad">
+        <div class="bars">
+          ${weeks.map(w=>`
+            <div class="bar-col">
+              <div class="bar-val">${w.mins? fmtHoursShort(w.mins):''}</div>
+              <div class="bar-wrap"><div class="bar" style="height:${Math.max(4,(w.mins/maxWeek*100))}%;"></div></div>
+              <div class="bar-label">${w.label}</div>
+            </div>
+          `).join('')}
         </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head"><h3>מכסת שעות ללקוח</h3></div>
-        <div class="panel-pad" style="display:flex; flex-direction:column; gap:14px;">
-          ${state.clients.filter(c=>c.useHoursBank && c.monthlyQuota>0).map(c=>{
-            const used = clientMonthMinutes(c.id);
-            const pct = Math.min(100, used/(c.monthlyQuota*60)*100);
-            const color = pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--green)';
-            return `<div>
-              <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;">
-                <span style="font-weight:700;">${clientDisplayName(c)}</span>
-                <span class="cell-muted">${fmtHoursShort(used)} / ${c.monthlyQuota} ש׳</span>
-              </div>
-              <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${color};"></div></div>
-            </div>`;
-          }).join('') || `<div class="cell-muted">אין ללקוחות בנק שעות מוגדר עדיין</div>`}
-        </div>
-      </div>
-    </div>
-
-    <div class="grid grid-2" style="align-items:start;">
-      <div class="panel">
-        <div class="panel-head"><h3>דיווחים אחרונים</h3></div>
-        <table>
-          <thead><tr><th>תאריך</th><th>עובד</th><th>לקוח</th><th>משך</th></tr></thead>
-          <tbody>
-            ${recent.map(e=>{
-              const f=getFreelancer(e.freelancerId), c=getClient(e.clientId);
-              return `<tr><td class="cell-muted">${fmtDateHe(e.date)}</td><td>${f?.name||'—'}</td><td>${clientDisplayName(c)}</td><td class="mono">${fmtMinutes(e.minutes)}</td></tr>`;
-            }).join('') || `<tr class="empty-row"><td colspan="4">אין עדיין דיווחים</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head"><h3>פעילות עובדים</h3></div>
-        <table>
-          <thead><tr><th>עובד</th><th>שעות החודש</th><th>דיווח אחרון</th></tr></thead>
-          <tbody>
-            ${freelancerRows.map(f=>{
-              let gapPill = '';
-              if(f.gap===null) gapPill = `<span class="pill pill-gray">אין דיווחים</span>`;
-              else if(f.gap>=7) gapPill = `<span class="pill pill-red">לפני ${f.gap} ימים</span>`;
-              else if(f.gap>=3) gapPill = `<span class="pill pill-amber">לפני ${f.gap} ימים</span>`;
-              else gapPill = `<span class="pill pill-green">לפני ${f.gap===0?'היום':f.gap+' ימים'}</span>`;
-              return `<tr>
-                <td><div class="row-flex"><div class="avatar">${initials(f.name)}</div>${f.name}</div></td>
-                <td class="mono">${fmtHoursShort(f.mins)} ש׳</td>
-                <td>${gapPill}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
       </div>
     </div>
 
@@ -1663,7 +1570,7 @@ function renderDashboardWidgetsSection(){
         <h3>הדשבורד שלי</h3>
         ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openAddKpiWidgetModal()">${ICON.plus} הוסף KPI</button>` : ''}
       </div>
-      <div class="panel-pad" style="display:flex; flex-direction:column; gap:12px;">
+      <div class="panel-pad" style="display:flex; flex-wrap:wrap; gap:12px;">
         ${widgets.length
           ? widgets.map((w,i)=>renderOneDashboardWidget(w,i,widgets.length,admin)).join('')
           : `<div class="cell-muted">עדיין אין widgets בדשבורד.${admin?' לחץ "הוסף KPI" למעלה, או "שמור תצוגה כ-widget" בעמוד דיווחי עבודה / משימות.':''}</div>`}
@@ -1672,27 +1579,37 @@ function renderDashboardWidgetsSection(){
   `;
 }
 
+function openEditKpiWidgetModal(id){
+  const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
+  if(w) openAddKpiWidgetModal(w);
+}
+
 function renderOneDashboardWidget(w, i, total, admin){
-  const controls = admin ? `
-    <div style="display:flex; gap:4px; flex-shrink:0;">
-      ${i>0?`<button class="icon-btn" title="הזז למעלה" onclick="moveDashboardWidget(${w.id},-1)">↑</button>`:''}
-      ${i<total-1?`<button class="icon-btn" title="הזז למטה" onclick="moveDashboardWidget(${w.id},1)">↓</button>`:''}
-      <button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>
-    </div>` : '';
+  const moveButtons = admin ? `
+    ${i>0?`<button class="icon-btn" title="הזז למעלה" onclick="moveDashboardWidget(${w.id},-1)">↑</button>`:''}
+    ${i<total-1?`<button class="icon-btn" title="הזז למטה" onclick="moveDashboardWidget(${w.id},1)">↓</button>`:''}
+    <button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>
+  ` : '';
 
   if(w.type==='kpi'){
     const val = (w.value===null || w.value===undefined) ? '—' : (Number.isInteger(w.value) ? w.value : w.value.toFixed(1));
     return `
-      <div class="panel" style="padding:14px 16px; display:flex; align-items:center; justify-content:space-between;">
-        <div><div class="cell-muted" style="font-size:12.5px;">${w.title}</div><div style="font-size:26px; font-weight:800;">${val}</div></div>
-        ${controls}
+      <div class="panel" style="padding:14px 16px; flex:1 1 220px; min-width:200px;">
+        <div class="cell-muted" style="font-size:12.5px;">${w.title}</div>
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+          <div style="font-size:26px; font-weight:800;">${val}</div>
+          <div style="display:flex; gap:4px; flex-shrink:0;">
+            ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditKpiWidgetModal(${w.id})">${ICON.edit}</button>`:''}
+            ${moveButtons}
+          </div>
+        </div>
       </div>`;
   }
   return `
-    <div class="panel" style="padding:14px 16px;">
+    <div class="panel" style="padding:14px 16px; flex:1 1 100%;">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
         <div style="font-weight:700;">${w.title}</div>
-        ${controls}
+        <div style="display:flex; gap:4px;">${moveButtons}</div>
       </div>
       <div id="widgetList-${w.id}" class="cell-muted">טוען...</div>
     </div>`;
@@ -1735,6 +1652,14 @@ async function fetchListWidgetRows(config){
     if(f.date_to) rows = rows.filter(t=>t.deadline && t.deadline<=f.date_to);
     return rows.slice(0,10);
   }
+  if(config.source==='clients_usage' || config.source==='employees_activity'){
+    const qs = new URLSearchParams();
+    if(f.date_from) qs.set('date_from', f.date_from);
+    if(f.date_to) qs.set('date_to', f.date_to);
+    const path = config.source==='clients_usage' ? '/dashboard-widgets/relations/clients-usage' : '/dashboard-widgets/relations/employees-activity';
+    const rows = await apiCall(`${path}?${qs.toString()}`);
+    return rows.slice(0,10);
+  }
   return [];
 }
 
@@ -1754,6 +1679,32 @@ function renderListWidgetRows(source, rows){
       ${rows.map(t=>{
         const f=t.employee_id?getFreelancer(String(t.employee_id)):null;
         return `<tr><td>${t.description}</td><td>${f?.name||'—'}</td><td>${TASK_STATUS_LABEL[t.status]||t.status}</td><td class="cell-muted">${t.deadline?fmtDateHe(t.deadline):'—'}</td></tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+  if(source==='clients_usage'){
+    return rows.map(r=>{
+      const pct = Math.min(100, r.pct);
+      const color = pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--green)';
+      return `<div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;">
+          <span style="font-weight:700;">${r.name}</span>
+          <span class="cell-muted">${r.hours_logged.toFixed(1)} / ${r.monthly_quota_hours} ש׳</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${color};"></div></div>
+      </div>`;
+    }).join('');
+  }
+  if(source==='employees_activity'){
+    return `<table><thead><tr><th>עובד</th><th>שעות</th><th>דיווח אחרון</th></tr></thead><tbody>
+      ${rows.map(r=>{
+        const gap = daysSince(r.last_entry_at ? r.last_entry_at.slice(0,10) : null);
+        let gapPill;
+        if(gap===null) gapPill = `<span class="pill pill-gray">אין דיווחים</span>`;
+        else if(gap>=7) gapPill = `<span class="pill pill-red">לפני ${gap} ימים</span>`;
+        else if(gap>=3) gapPill = `<span class="pill pill-amber">לפני ${gap} ימים</span>`;
+        else gapPill = `<span class="pill pill-green">לפני ${gap===0?'היום':gap+' ימים'}</span>`;
+        return `<tr><td>${r.name}</td><td class="mono">${r.hours_logged.toFixed(1)} ש׳</td><td>${gapPill}</td></tr>`;
       }).join('')}
     </tbody></table>`;
   }
@@ -1792,11 +1743,15 @@ async function saveListWidget(){
   }catch(err){ toast('שגיאה: '+err.message); }
 }
 
-function openAddKpiWidgetModal(){
+let editingWidgetId = null;
+
+function openAddKpiWidgetModal(existingWidget){
+  editingWidgetId = existingWidget ? existingWidget.id : null;
+  const prefill = existingWidget ? existingWidget.config : null;
   openModal(`
-    <div class="modal-head"><h3>הוסף KPI לדשבורד</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-head"><h3>${existingWidget?'עריכת':'הוסף'} KPI ${existingWidget?'':'לדשבורד'}</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
     <div class="modal-body">
-      <div class="field"><label>כותרת</label><input type="text" id="kpiTitle" placeholder="לדוגמה: שעות החודש"></div>
+      <div class="field"><label>כותרת</label><input type="text" id="kpiTitle" placeholder="לדוגמה: שעות החודש" value="${existingWidget?existingWidget.title.replace(/"/g,'&quot;'):''}"></div>
       <div class="field-row">
         <div class="field">
           <label>מקור נתונים</label>
@@ -1805,9 +1760,11 @@ function openAddKpiWidgetModal(){
             <option value="projects">לקוחות</option>
             <option value="employees">עובדים</option>
             <option value="tasks">משימות</option>
+            <option value="clients_usage">לקוחות מעל % ממכסת שעות</option>
+            <option value="employees_activity">עובדים עם שעות מדווחות</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" data-source-only="time_entries,projects,employees,tasks">
           <label>סוג חישוב</label>
           <select id="kpiAgg" onchange="onKpiAggChange()">
             <option value="sum">סכום</option>
@@ -1838,6 +1795,10 @@ function openAddKpiWidgetModal(){
           <select id="kpiProject"><option value="">הכל</option>${state.clients.map(c=>`<option value="${c.id}">${clientDisplayName(c)}</option>`).join('')}</select>
         </div>
       </div>
+      <div class="field" data-source-only="time_entries">
+        <label>מצב</label>
+        <select id="kpiTimeEntryStatus"><option value="">הכל</option><option value="open">פתוחים בלבד</option><option value="completed">הושלמו בלבד</option></select>
+      </div>
       <div class="field" data-source-only="tasks">
         <label>סטטוס משימה</label>
         <select id="kpiStatus"><option value="">הכל</option>${Object.entries(TASK_STATUS_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
@@ -1850,6 +1811,16 @@ function openAddKpiWidgetModal(){
         <label>תפקיד</label>
         <select id="kpiRole"><option value="">הכל</option><option value="admin">אדמין</option><option value="employee">עובד</option></select>
       </div>
+      <div class="field" data-source-only="clients_usage">
+        <label>אחוז ממכסה (סף)</label>
+        <input type="number" id="kpiThresholdPct" value="80" min="0" max="500">
+        <div class="hint">סופר לקוחות עם בנק-שעות שהגיעו לפחות לאחוז הזה מהמכסה החודשית שלהם, בטווח התאריכים.</div>
+      </div>
+      <div class="field" data-source-only="employees_activity">
+        <label>מינימום שעות</label>
+        <input type="number" id="kpiMinHours" value="0" min="0" step="0.5">
+        <div class="hint">סופר עובדים פעילים עם יותר משעות אלה מדווחות בטווח התאריכים (0 = כל דיווח נחשב).</div>
+      </div>
 
       <div class="hint" id="kpiPreviewResult" style="margin-top:14px; font-weight:700;"></div>
     </div>
@@ -1860,6 +1831,26 @@ function openAddKpiWidgetModal(){
     </div>
   `);
   onKpiSourceChange();
+  if(prefill) applyKpiPrefill(prefill);
+}
+
+function applyKpiPrefill(config){
+  document.getElementById('kpiSource').value = config.data_source;
+  onKpiSourceChange();
+  if(config.aggregation) document.getElementById('kpiAgg').value = config.aggregation;
+  onKpiAggChange();
+  if(config.field) document.getElementById('kpiField').value = config.field;
+  const f = config.filters || {};
+  if(f.date_from && f.date_from!=='this_month_start') document.getElementById('kpiFrom').value = f.date_from;
+  if(f.date_to && f.date_to!=='today') document.getElementById('kpiTo').value = f.date_to;
+  if(f.employee_id && document.getElementById('kpiEmployee')) document.getElementById('kpiEmployee').value = f.employee_id;
+  if(f.project_id && document.getElementById('kpiProject')) document.getElementById('kpiProject').value = f.project_id;
+  if(f.status && document.getElementById('kpiTimeEntryStatus')) document.getElementById('kpiTimeEntryStatus').value = f.status;
+  if(f.status && document.getElementById('kpiStatus')) document.getElementById('kpiStatus').value = f.status;
+  if(f.payment_method) document.getElementById('kpiPaymentMethod').value = f.payment_method;
+  if(f.role) document.getElementById('kpiRole').value = f.role;
+  if(f.threshold_pct!==undefined) document.getElementById('kpiThresholdPct').value = f.threshold_pct;
+  if(f.min_hours!==undefined) document.getElementById('kpiMinHours').value = f.min_hours;
 }
 
 function onKpiSourceChange(){
@@ -1873,8 +1864,9 @@ function onKpiSourceChange(){
 
 function onKpiAggChange(){
   const source = document.getElementById('kpiSource').value;
-  const agg = document.getElementById('kpiAgg').value;
   const wrap = document.getElementById('kpiFieldWrap');
+  if(['clients_usage','employees_activity'].includes(source)){ wrap.style.display = 'none'; return; }
+  const agg = document.getElementById('kpiAgg').value;
   const fieldSelect = document.getElementById('kpiField');
   if(agg==='count'){ wrap.style.display = 'none'; return; }
   wrap.style.display = '';
@@ -1886,14 +1878,27 @@ function onKpiAggChange(){
 
 function collectKpiConfig(){
   const source = document.getElementById('kpiSource').value;
-  const aggregation = document.getElementById('kpiAgg').value;
-  const field = aggregation==='count' ? undefined : (document.getElementById('kpiField').value || undefined);
   const filters = {};
   const from = document.getElementById('kpiFrom').value; if(from) filters.date_from = from;
   const to = document.getElementById('kpiTo').value; if(to) filters.date_to = to;
+
+  if(source==='clients_usage'){
+    filters.threshold_pct = Number(document.getElementById('kpiThresholdPct').value) || 0;
+    return { data_source: source, filters };
+  }
+  if(source==='employees_activity'){
+    filters.min_hours = Number(document.getElementById('kpiMinHours').value) || 0;
+    return { data_source: source, filters };
+  }
+
+  const aggregation = document.getElementById('kpiAgg').value;
+  const field = aggregation==='count' ? undefined : (document.getElementById('kpiField').value || undefined);
   if(['time_entries','tasks'].includes(source)){
     const emp = document.getElementById('kpiEmployee').value; if(emp) filters.employee_id = emp;
     const proj = document.getElementById('kpiProject').value; if(proj) filters.project_id = proj;
+  }
+  if(source==='time_entries'){
+    const status = document.getElementById('kpiTimeEntryStatus').value; if(status) filters.status = status;
   }
   if(source==='tasks'){
     const status = document.getElementById('kpiStatus').value; if(status) filters.status = status;
@@ -1920,9 +1925,13 @@ async function saveKpiWidget(){
   const title = document.getElementById('kpiTitle').value.trim();
   if(!title){ toast('צריך כותרת ל-widget'); return; }
   try{
-    await apiCall('/dashboard-widgets', { method:'POST', body: JSON.stringify({ type:'kpi', title, config: collectKpiConfig() }) });
+    if(editingWidgetId){
+      await apiCall(`/dashboard-widgets/${editingWidgetId}`, { method:'PATCH', body: JSON.stringify({ title, config: collectKpiConfig() }) });
+    } else {
+      await apiCall('/dashboard-widgets', { method:'POST', body: JSON.stringify({ type:'kpi', title, config: collectKpiConfig() }) });
+    }
     closeModal();
-    toast('נוסף לדשבורד');
+    toast(editingWidgetId ? 'העדכון נשמר' : 'נוסף לדשבורד');
     await refreshData();
     renderAll();
   }catch(err){ toast('שגיאה: '+err.message); }

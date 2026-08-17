@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { evaluateKpi, listDataSources, ValidationError } = require('../lib/kpiEngine');
+const { evaluateKpi, evaluateClientsUsage, evaluateEmployeesActivity, listDataSources, ValidationError } = require('../lib/kpiEngine');
 
 const router = express.Router();
 router.use(authenticate);
@@ -53,6 +53,50 @@ router.post('/kpi/preview', async (req, res) => {
     if (err instanceof ValidationError) return res.status(400).json({ error: 'validation_error', message: err.message });
     throw err;
   }
+});
+
+/**
+ * @openapi
+ * /api/dashboard-widgets/relations/clients-usage:
+ *   get:
+ *     tags: [Dashboard Widgets]
+ *     summary: Per-client hours logged vs. monthly quota, for clients with an hours-bank quota
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: date_from
+ *         schema: { type: string }
+ *       - in: query
+ *         name: date_to
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: One row per client }
+ */
+router.get('/relations/clients-usage', async (req, res) => {
+  const rows = await evaluateClientsUsage(companyIdOf(req), { dateFrom: req.query.date_from, dateTo: req.query.date_to });
+  res.json(rows);
+});
+
+/**
+ * @openapi
+ * /api/dashboard-widgets/relations/employees-activity:
+ *   get:
+ *     tags: [Dashboard Widgets]
+ *     summary: Per-employee hours logged and most recent entry
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: date_from
+ *         schema: { type: string }
+ *       - in: query
+ *         name: date_to
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: One row per employee }
+ */
+router.get('/relations/employees-activity', async (req, res) => {
+  const rows = await evaluateEmployeesActivity(companyIdOf(req), { dateFrom: req.query.date_from, dateTo: req.query.date_to });
+  res.json(rows);
 });
 
 /**
@@ -175,13 +219,24 @@ router.get('/:id/value', async (req, res) => {
  *       204: { description: Removed }
  */
 router.patch('/:id', requireRole('admin'), async (req, res) => {
-  const { title, position } = req.body;
+  const { title, position, config } = req.body;
+  const existing = await pool.query('SELECT type FROM dashboard_widgets WHERE id = $1 AND company_id = $2', [req.params.id, companyIdOf(req)]);
+  if (!existing.rows[0]) return res.status(404).json({ error: 'not_found' });
+
+  if (config !== undefined && existing.rows[0].type === 'kpi') {
+    try {
+      await evaluateKpi(companyIdOf(req), config);
+    } catch (err) {
+      if (err instanceof ValidationError) return res.status(400).json({ error: 'validation_error', message: err.message });
+      throw err;
+    }
+  }
+
   const { rows } = await pool.query(
-    `UPDATE dashboard_widgets SET title = COALESCE($1, title), position = COALESCE($2, position)
-     WHERE id = $3 AND company_id = $4 RETURNING *`,
-    [title || null, position ?? null, req.params.id, companyIdOf(req)]
+    `UPDATE dashboard_widgets SET title = COALESCE($1, title), position = COALESCE($2, position), config = COALESCE($3, config)
+     WHERE id = $4 AND company_id = $5 RETURNING *`,
+    [title || null, position ?? null, config || null, req.params.id, companyIdOf(req)]
   );
-  if (!rows[0]) return res.status(404).json({ error: 'not_found' });
   res.json(rows[0]);
 });
 
