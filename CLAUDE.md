@@ -117,7 +117,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 | `clientFields.js` / `clientIntake.js` | שדות מותאמים ללקוח + לינק עצמאי |
 | `employeeFields.js` / `employeeIntake.js` | שדות מותאמים לעובד + לינק עצמאי |
 | `notificationSettings.js` | הגדרות מי מקבל איזו התראה, כולל ערוץ מייל (ראו "אינטגרציית מייל" למטה) |
-| `guides.js` / `ownerGuides.js` | סרטוני הדרכה |
+| `guides.js` / `ownerGuides.js` | סרטוני הדרכה, כולל visibility לפי role (ראו למטה) |
 | `branding.js` | לוגו/מיתוג (מנוהל ע"י סופר-אדמין) |
 | `notifications.js` / `ownerNotifications.js` | פעמון התראות |
 | `ownerChangelog.js` | יומן שינויים (רק סופר-אדמין, בלי delete) |
@@ -166,6 +166,10 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 ### תצוגת תפריט: סרגל צד / סרגל עליון (18.8.2026)
 
 העדפה אישית **לא מסונכרנת בין מכשירים** — נשמרת ב-`localStorage` (`tt_nav_layout`, `'sidebar'` ברירת מחדל או `'topbar'`) ולא ב-DB, בכוונה: זו בחירת תצוגה טהורה בלי משמעות עסקית/אבטחתית, אז לא הצדיק migration/endpoint חדש. `applyStoredNavLayout()` נקרא בתחילת `boot()`, מוסיף/מסיר class `nav-top` על `document.body`; כל שאר ההתנהגות היא CSS בלבד תחת `body.nav-top ...` (הופך את `.sidebar` משורה אנכית לרוחבית, `.app` מ-`flex-direction:row` ל-`column`, `.nav` מקבל `flex-direction:row` כדי שהאפשרויות יופיעו אחת ליד השניה) — שום קוד JS לא בונה מחדש את ה-DOM בין שני המצבים, רק toggle של class אחד. `renderNavLayoutPicker(wrapped)` — שני כרטיסים לחיצים ("סרגל צד" / "סרגל עליון"), מופיע פעמיים באותו קוד: ב"החשבון שלי" (`wrapped=true`, עטוף ב-`.panel` משלו, כי זה עמוד עצמאי) וב"הגדרות → הגדרות כלליות" (`wrapped=false`, בלי `.panel` נוסף כי זה כבר בתוך `.panel-pad` קיים — panel מקונן היה נראה מוזר). **רק ב-`index.html` (אדמין+עובד) — לא ב-`owner/index.html`**, לא התבקש שם.
+
+### נראות סרטוני הדרכה לפי role (18.8.2026)
+
+`guide_videos.visibility` (migration 028, `'admin'`/`'all'`, ברירת מחדל `'all'`) — הסופר-אדמין בוחר לכל סרטון בנפרד, בזמן הוספה/עריכה ב-`owner/index.html` (select "מי יראה את הסרטון"), האם הוא מיועד לאדמין בלבד או לכולם. **האכיפה בפועל ב-`guides.js`** (הצד שהאדמין/עובד של החברה קוראים ממנו, לא ב-`ownerGuides.js` שהוא ה-CRUD של הסופר-אדמין) — `req.auth.role !== 'admin'` מסנן החוצה סרטוני `'admin'` **בשרת**, לפני שהם מגיעים ל-client, לא רק מוסתרים ב-UI (עקבי עם "סינון שדות לפי role" ב"מוסכמות עבודה" למטה). ב-`owner/index.html` יש badge קטן ("אדמין בלבד") ליד כותרת סרטון עם visibility כזה, כדי שהסופר-אדמין יראה בסקירה מהירה בלי לפתוח כל סרטון בנפרד.
 
 ### גישת API לאוטומציה (owner-level, לא company-level)
 

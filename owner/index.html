@@ -1199,7 +1199,7 @@ function renderGuideCategories() {
         return `<div class="guide-video-row">
           <img src="${yid ? `https://img.youtube.com/vi/${yid}/mqdefault.jpg` : ''}" alt="">
           <div class="info">
-            <div class="t">${v.title}</div>
+            <div class="t">${v.title} ${v.visibility === 'admin' ? '<span class="badge trial">אדמין בלבד</span>' : ''}</div>
             ${v.description ? `<div class="d">${v.description}</div>` : ''}
           </div>
           <div style="display:flex; gap:6px;">
@@ -1269,6 +1269,11 @@ function openVideoModal(categoryId, videoId) {
     <label>כותרת</label><input id="mVideoTitle" value="${video?.title || ''}">
     <label>תיאור קצר</label><textarea id="mVideoDesc">${video?.description || ''}</textarea>
     <label>קישור יוטיוב</label><input id="mVideoUrl" value="${video?.youtube_url || ''}" placeholder="https://www.youtube.com/watch?v=...">
+    <label>מי יראה את הסרטון</label>
+    <select id="mVideoVisibility">
+      <option value="all" ${(video?.visibility || 'all') === 'all' ? 'selected' : ''}>כולם — אדמין ועובד</option>
+      <option value="admin" ${video?.visibility === 'admin' ? 'selected' : ''}>אדמין בלבד</option>
+    </select>
     <button class="btn-primary" id="mSaveVideoBtn">${video ? 'שמור שינויים' : 'הוסף סרטון'}</button>
     <div class="error hidden" id="mVideoError"></div>
   `);
@@ -1279,6 +1284,7 @@ function openVideoModal(categoryId, videoId) {
       title: $('mVideoTitle').value.trim(),
       description: $('mVideoDesc').value.trim(),
       youtube_url: $('mVideoUrl').value.trim(),
+      visibility: $('mVideoVisibility').value,
     };
     if (!body.title || !body.youtube_url) {
       $('mVideoError').textContent = 'יש למלא כותרת וקישור יוטיוב';
