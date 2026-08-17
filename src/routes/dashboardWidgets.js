@@ -6,8 +6,6 @@ const { evaluateKpi, evaluateClientsUsage, evaluateEmployeesActivity, listDataSo
 const router = express.Router();
 router.use(authenticate);
 
-const WIDGET_SIZES = ['quarter', 'half', 'three_quarter', 'full'];
-
 function companyIdOf(req) {
   return req.auth.companyId;
 }
@@ -146,12 +144,9 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', requireRole('admin'), async (req, res) => {
-  const { type, title, config, size } = req.body;
+  const { type, title, config } = req.body;
   if (!['kpi', 'list'].includes(type)) return res.status(400).json({ error: 'validation_error', message: 'type must be kpi or list' });
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'validation_error', message: 'title is required' });
-  if (size !== undefined && size !== null && !WIDGET_SIZES.includes(size)) {
-    return res.status(400).json({ error: 'validation_error', message: 'size must be one of ' + WIDGET_SIZES.join(', ') });
-  }
 
   if (type === 'kpi') {
     try {
@@ -167,9 +162,9 @@ router.post('/', requireRole('admin'), async (req, res) => {
     [companyIdOf(req)]
   );
   const { rows } = await pool.query(
-    `INSERT INTO dashboard_widgets (company_id, type, title, config, position, created_by, size)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [companyIdOf(req), type, title, config || {}, posRows[0].next, req.auth.employeeId || null, size || null]
+    `INSERT INTO dashboard_widgets (company_id, type, title, config, position, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [companyIdOf(req), type, title, config || {}, posRows[0].next, req.auth.employeeId || null]
   );
   res.status(201).json(rows[0]);
 });
@@ -224,10 +219,7 @@ router.get('/:id/value', async (req, res) => {
  *       204: { description: Removed }
  */
 router.patch('/:id', requireRole('admin'), async (req, res) => {
-  const { title, position, config, height_px, size } = req.body;
-  if (size !== undefined && size !== null && !WIDGET_SIZES.includes(size)) {
-    return res.status(400).json({ error: 'validation_error', message: 'size must be one of ' + WIDGET_SIZES.join(', ') });
-  }
+  const { title, position, config, width_px, height_px } = req.body;
   const existing = await pool.query('SELECT type FROM dashboard_widgets WHERE id = $1 AND company_id = $2', [req.params.id, companyIdOf(req)]);
   if (!existing.rows[0]) return res.status(404).json({ error: 'not_found' });
 
@@ -240,13 +232,14 @@ router.patch('/:id', requireRole('admin'), async (req, res) => {
     }
   }
 
+  const w = Number.isFinite(width_px) && width_px > 0 ? Math.round(width_px) : null;
   const h = Number.isFinite(height_px) && height_px > 0 ? Math.round(height_px) : null;
 
   const { rows } = await pool.query(
     `UPDATE dashboard_widgets SET title = COALESCE($1, title), position = COALESCE($2, position),
-       config = COALESCE($3, config), height_px = COALESCE($6, height_px), size = COALESCE($7, size)
+       config = COALESCE($3, config), width_px = COALESCE($6, width_px), height_px = COALESCE($7, height_px)
      WHERE id = $4 AND company_id = $5 RETURNING *`,
-    [title || null, position ?? null, config || null, req.params.id, companyIdOf(req), h, size || null]
+    [title || null, position ?? null, config || null, req.params.id, companyIdOf(req), w, h]
   );
   res.json(rows[0]);
 });

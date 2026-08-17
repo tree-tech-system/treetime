@@ -299,25 +299,14 @@
   .dashboard-widget{ min-height:60px; transition:opacity .15s; }
   .dashboard-widget[data-draggable="1"]{ cursor:grab; }
   .dashboard-widget.dragging{ opacity:.5; cursor:grabbing; box-shadow:0 8px 20px rgba(0,0,0,.2); z-index:5; }
-  .widget-size-quarter{ flex:0 0 calc(25% - 9px); max-width:calc(25% - 9px); }
-  .widget-size-half{ flex:0 0 calc(50% - 6px); max-width:calc(50% - 6px); }
-  .widget-size-three_quarter{ flex:0 0 calc(75% - 3px); max-width:calc(75% - 3px); }
-  .widget-size-full{ flex:0 0 100%; max-width:100%; }
-  @media (max-width:720px){
-    .widget-size-quarter, .widget-size-half, .widget-size-three_quarter{ flex:0 0 100%; max-width:100%; }
+  .widget-resize-arrow{
+    position:absolute; width:20px; height:20px; border-radius:50%; border:1px solid var(--border);
+    background:var(--panel); color:var(--muted); display:flex; align-items:center; justify-content:center;
+    font-size:12px; line-height:1; opacity:.55; box-shadow:var(--shadow);
   }
-  .widget-resize-handle{
-    position:absolute; left:2px; bottom:2px; width:14px; height:14px; cursor:ns-resize;
-    opacity:.35; border-left:2px solid var(--muted); border-bottom:2px solid var(--muted); border-radius:0 0 0 3px;
-  }
-  .widget-resize-handle:hover{ opacity:.8; }
-  .widget-size-picker{ display:flex; gap:2px; }
-  .widget-size-btn{
-    width:20px; height:20px; padding:0; border:1px solid var(--border); background:var(--panel); border-radius:4px;
-    font-size:10px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--muted);
-  }
-  .widget-size-btn:hover{ border-color:var(--green-bright); color:var(--ink); }
-  .widget-size-btn.active{ background:var(--green); color:#fff; border-color:var(--green); }
+  .widget-resize-arrow:hover{ opacity:1; border-color:var(--green-bright); color:var(--green-bright); }
+  .widget-resize-arrow-w{ right:-8px; top:50%; margin-top:-10px; cursor:ew-resize; }
+  .widget-resize-arrow-h{ bottom:-8px; left:50%; margin-left:-10px; cursor:ns-resize; }
 
   .checkbox-list{
     border:1px solid var(--border); border-radius:9px; background:#fff;
@@ -1664,74 +1653,60 @@ function openEditListWidgetModal(id){
   if(w) openAddListWidgetModal(w);
 }
 
-const WIDGET_SIZE_LABELS = [['quarter','¼'],['half','½'],['three_quarter','¾'],['full','⛶']];
-
-function renderWidgetSizePicker(w, admin){
-  if(!admin) return '';
-  const size = w.size || (w.type==='kpi' ? 'quarter' : 'full');
-  return `<div class="widget-size-picker" title="רוחב הוויג'ט">${WIDGET_SIZE_LABELS.map(([key,label])=>
-    `<button type="button" class="widget-size-btn${size===key?' active':''}" title="${key==='full'?'מסך מלא':label}" onclick="setWidgetSize(${w.id},'${key}')">${label}</button>`
-  ).join('')}</div>`;
-}
-
 function renderOneDashboardWidget(w, i, total, admin){
   const moveButtons = admin ? `
     ${i>0?`<button class="icon-btn" title="הזז למעלה" onclick="moveDashboardWidget(${w.id},-1)">↑</button>`:''}
     ${i<total-1?`<button class="icon-btn" title="הזז למטה" onclick="moveDashboardWidget(${w.id},1)">↓</button>`:''}
     <button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>
   ` : '';
-  const size = w.size || (w.type==='kpi' ? 'quarter' : 'full');
-  const sizePicker = renderWidgetSizePicker(w, admin);
-  const resizeHandle = admin ? `<div class="widget-resize-handle" title="גרור לשינוי גובה"></div>` : '';
+  // Press-and-hold arrow handles: one stretches width, one stretches height. No preset sizes anymore.
+  const resizeHandles = admin ? `
+    <div class="widget-resize-arrow widget-resize-arrow-w" title="לחץ והחזק כדי למתוח לרוחב">↔</div>
+    <div class="widget-resize-arrow widget-resize-arrow-h" title="לחץ והחזק כדי למתוח לגובה">↕</div>
+  ` : '';
   const draggableAttr = admin ? `data-draggable="1"` : '';
 
   if(w.type==='kpi'){
     const val = (w.value===null || w.value===undefined) ? '—' : (Number.isInteger(w.value) ? w.value : w.value.toFixed(1));
-    const heightStyle = w.height_px?`height:${w.height_px}px;`:'';
+    const sizeStyle = (w.width_px?`width:${w.width_px}px; flex:0 0 auto;`:'flex:1 1 220px;') + (w.height_px?`height:${w.height_px}px;`:'');
     return `
-      <div class="panel dashboard-widget widget-size-${size}" data-widget-id="${w.id}" ${draggableAttr} style="padding:14px 16px; min-width:200px; position:relative; box-sizing:border-box; ${heightStyle}">
+      <div class="panel dashboard-widget" data-widget-id="${w.id}" ${draggableAttr} style="padding:14px 16px; min-width:200px; position:relative; box-sizing:border-box; ${sizeStyle}">
         <div class="cell-muted" style="font-size:12.5px;">${w.title}</div>
         <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px; flex-wrap:wrap;">
           <div style="font-size:26px; font-weight:800;">${val}</div>
           <div style="display:flex; gap:4px; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end;">
             ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditKpiWidgetModal(${w.id})">${ICON.edit}</button>`:''}
-            ${sizePicker}
             ${moveButtons}
           </div>
         </div>
-        ${resizeHandle}
+        ${resizeHandles}
       </div>`;
   }
-  const heightStyle = w.height_px?`height:${w.height_px}px; overflow:auto;`:'';
+  const sizeStyle = (w.width_px?`width:${w.width_px}px; flex:0 0 auto;`:'flex:1 1 100%;') + (w.height_px?`height:${w.height_px}px; overflow:auto;`:'');
   return `
-    <div class="panel dashboard-widget widget-size-${size}" data-widget-id="${w.id}" ${draggableAttr} style="padding:14px 16px; position:relative; box-sizing:border-box; ${heightStyle}">
+    <div class="panel dashboard-widget" data-widget-id="${w.id}" ${draggableAttr} style="padding:14px 16px; position:relative; box-sizing:border-box; ${sizeStyle}">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
         <div style="font-weight:700;">${w.title}</div>
         <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">
           ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditListWidgetModal(${w.id})">${ICON.edit}</button>`:''}
-          ${sizePicker}
           ${moveButtons}
         </div>
       </div>
       <div id="widgetList-${w.id}" class="cell-muted">טוען...</div>
-      ${resizeHandle}
+      ${resizeHandles}
     </div>`;
 }
 
-async function setWidgetSize(id, size){
-  try{
-    await apiCall(`/dashboard-widgets/${id}`, { method:'PATCH', body: JSON.stringify({ size }) });
-    const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
-    if(w) w.size = size;
-    renderAll();
-  }catch(err){ toast('שגיאה בשינוי גודל: '+err.message); }
-}
-
 function wireDashboardWidgetInteractions(){
-  document.querySelectorAll('.widget-resize-handle').forEach(handle=>{
+  document.querySelectorAll('.widget-resize-arrow-w').forEach(handle=>{
     if(handle.dataset.wired) return;
     handle.dataset.wired = '1';
-    handle.addEventListener('mousedown', onWidgetResizeStart);
+    handle.addEventListener('mousedown', onWidgetWidthResizeStart);
+  });
+  document.querySelectorAll('.widget-resize-arrow-h').forEach(handle=>{
+    if(handle.dataset.wired) return;
+    handle.dataset.wired = '1';
+    handle.addEventListener('mousedown', onWidgetHeightResizeStart);
   });
   document.querySelectorAll('.dashboard-widget[data-draggable="1"]').forEach(el=>{
     if(el.dataset.dragWired) return;
@@ -1740,29 +1715,62 @@ function wireDashboardWidgetInteractions(){
   });
 }
 
-// Resize handle changes height only now -- width is one of the 4 preset sizes (see setWidgetSize).
-let resizingWidget = null;
-function onWidgetResizeStart(e){
+// Press-and-hold the ↔ arrow, then drag left/right to stretch the widget's width.
+let resizingWidgetW = null;
+function onWidgetWidthResizeStart(e){
   e.preventDefault();
   const el = e.target.closest('.dashboard-widget');
   if(!el) return;
-  resizingWidget = { el, id: Number(el.dataset.widgetId), startY: e.clientY, startH: el.offsetHeight };
-  document.addEventListener('mousemove', onWidgetResizeMove);
-  document.addEventListener('mouseup', onWidgetResizeEnd);
+  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth };
+  document.addEventListener('mousemove', onWidgetWidthResizeMove);
+  document.addEventListener('mouseup', onWidgetWidthResizeEnd);
 }
-function onWidgetResizeMove(e){
-  if(!resizingWidget) return;
-  const dy = e.clientY - resizingWidget.startY;
-  const h = Math.max(60, resizingWidget.startH + dy);
-  resizingWidget.el.style.height = h+'px';
-  resizingWidget.height = Math.round(h);
+function onWidgetWidthResizeMove(e){
+  if(!resizingWidgetW) return;
+  const dx = e.clientX - resizingWidgetW.startX;
+  const dir = document.documentElement.dir === 'rtl' || getComputedStyle(document.body).direction === 'rtl' ? -1 : 1;
+  const w = Math.max(200, resizingWidgetW.startW + dir*dx);
+  resizingWidgetW.el.style.width = w+'px';
+  resizingWidgetW.el.style.flex = '0 0 auto';
+  resizingWidgetW.width = Math.round(w);
 }
-async function onWidgetResizeEnd(){
-  document.removeEventListener('mousemove', onWidgetResizeMove);
-  document.removeEventListener('mouseup', onWidgetResizeEnd);
-  if(!resizingWidget) return;
-  const { id, height } = resizingWidget;
-  resizingWidget = null;
+async function onWidgetWidthResizeEnd(){
+  document.removeEventListener('mousemove', onWidgetWidthResizeMove);
+  document.removeEventListener('mouseup', onWidgetWidthResizeEnd);
+  if(!resizingWidgetW) return;
+  const { id, width } = resizingWidgetW;
+  resizingWidgetW = null;
+  if(!width) return;
+  try{
+    await apiCall(`/dashboard-widgets/${id}`, { method:'PATCH', body: JSON.stringify({ width_px: width }) });
+    const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
+    if(w) w.width_px = width;
+  }catch(err){ toast('שגיאה בשמירת רוחב: '+err.message); }
+}
+
+// Press-and-hold the ↕ arrow, then drag up/down to stretch the widget's height.
+let resizingWidgetH = null;
+function onWidgetHeightResizeStart(e){
+  e.preventDefault();
+  const el = e.target.closest('.dashboard-widget');
+  if(!el) return;
+  resizingWidgetH = { el, id: Number(el.dataset.widgetId), startY: e.clientY, startH: el.offsetHeight };
+  document.addEventListener('mousemove', onWidgetHeightResizeMove);
+  document.addEventListener('mouseup', onWidgetHeightResizeEnd);
+}
+function onWidgetHeightResizeMove(e){
+  if(!resizingWidgetH) return;
+  const dy = e.clientY - resizingWidgetH.startY;
+  const h = Math.max(60, resizingWidgetH.startH + dy);
+  resizingWidgetH.el.style.height = h+'px';
+  resizingWidgetH.height = Math.round(h);
+}
+async function onWidgetHeightResizeEnd(){
+  document.removeEventListener('mousemove', onWidgetHeightResizeMove);
+  document.removeEventListener('mouseup', onWidgetHeightResizeEnd);
+  if(!resizingWidgetH) return;
+  const { id, height } = resizingWidgetH;
+  resizingWidgetH = null;
   if(!height) return;
   try{
     await apiCall(`/dashboard-widgets/${id}`, { method:'PATCH', body: JSON.stringify({ height_px: height }) });
@@ -1777,7 +1785,7 @@ let dragPending = null;
 let dragActive = null;
 function onWidgetDragMouseDown(e){
   if(e.button !== 0) return;
-  if(e.target.closest('button, select, input, a, .widget-resize-handle')) return;
+  if(e.target.closest('button, select, input, a, .widget-resize-arrow')) return;
   const el = e.currentTarget;
   dragPending = { el, startX: e.clientX, startY: e.clientY };
   dragPending.timer = setTimeout(()=>{
