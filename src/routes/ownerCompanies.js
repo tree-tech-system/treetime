@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
-const { authenticate, requireOwner } = require('../middleware/auth');
+const { authenticate, requireOwner, requireOwnerScope } = require('../middleware/auth');
 const { generateSlug } = require('../lib/slug');
 
 async function uniqueSlug(client) {
@@ -16,7 +16,7 @@ async function uniqueSlug(client) {
 }
 
 const router = express.Router();
-router.use(authenticate, requireOwner);
+router.use(authenticate);
 
 /**
  * @openapi
@@ -28,7 +28,7 @@ router.use(authenticate, requireOwner);
  *     responses:
  *       200: { description: Aggregate stats and recent activity }
  */
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', requireOwner, async (req, res) => {
   const [companyCounts, employeeCounts, runningTimers, hours30d, openTickets, recentCompanies, planBreakdown, recentEntries] = await Promise.all([
     pool.query(`SELECT
       COUNT(*) AS total,
@@ -73,7 +73,7 @@ router.get('/dashboard', async (req, res) => {
  *     responses:
  *       200: { description: Companies with usage stats }
  */
-router.get('/', async (req, res) => {
+router.get('/', requireOwner, async (req, res) => {
   const { rows } = await pool.query(`
     SELECT
       c.*,
@@ -116,6 +116,7 @@ router.get('/', async (req, res) => {
  */
 router.post(
   '/',
+  requireOwner,
   body('name').isString().trim().notEmpty(),
   body('admin_full_name').isString().trim().notEmpty(),
   body('admin_email').isEmail().normalizeEmail(),
@@ -169,7 +170,7 @@ router.post(
  *     responses:
  *       200: { description: Company detail }
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireOwner, async (req, res) => {
   const companyRes = await pool.query('SELECT * FROM companies WHERE id = $1', [req.params.id]);
   if (!companyRes.rows[0]) return res.status(404).json({ error: 'not_found' });
 
@@ -209,7 +210,7 @@ router.get('/:id', async (req, res) => {
  *     responses:
  *       200: { description: Updated company }
  */
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requireOwner, async (req, res) => {
   const { name, contact_email, contact_phone, plan, status, notes } = req.body;
   const { rows } = await pool.query(
     `UPDATE companies SET
@@ -256,7 +257,7 @@ router.patch('/:id', async (req, res) => {
  *     responses:
  *       200: { description: Updated employee }
  */
-router.patch('/:id/employees/:employeeId', async (req, res) => {
+router.patch('/:id/employees/:employeeId', requireOwner, async (req, res) => {
   const { full_name, email, password, role, active } = req.body;
   const password_hash = password ? await bcrypt.hash(password, 12) : null;
   try {
@@ -305,7 +306,7 @@ router.patch('/:id/employees/:employeeId', async (req, res) => {
  *       200: { description: Impersonation token issued }
  *       404: { description: No suitable employee found in this company }
  */
-router.post('/:id/impersonate', async (req, res) => {
+router.post('/:id/impersonate', requireOwnerScope('impersonate'), async (req, res) => {
   const companyId = req.params.id;
   let employee;
   if (req.body.employee_id) {
@@ -349,7 +350,7 @@ router.post('/:id/impersonate', async (req, res) => {
  *     responses:
  *       200: { description: List of impersonation events }
  */
-router.get('/:id/impersonations', async (req, res) => {
+router.get('/:id/impersonations', requireOwner, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT il.id, il.created_at, o.full_name AS owner_name, e.full_name AS employee_name
      FROM impersonation_log il
@@ -379,7 +380,7 @@ router.get('/:id/impersonations', async (req, res) => {
  *     responses:
  *       200: { description: List of recent API calls }
  */
-router.get('/:id/activity-log', async (req, res) => {
+router.get('/:id/activity-log', requireOwner, async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 200, 500);
   const { rows } = await pool.query(
     `SELECT al.id, al.method, al.path, al.status_code, al.ip, al.created_at,

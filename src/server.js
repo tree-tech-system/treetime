@@ -34,6 +34,7 @@ const ownerCompanyRoutes = require('./routes/ownerCompanies');
 const ownerTicketRoutes = require('./routes/ownerTickets');
 const adminSignupLinkRoutes = require('./routes/adminSignupLinks');
 const taskRoutes = require('./routes/tasks');
+const ownerApiKeyRoutes = require('./routes/ownerApiKeys');
 
 const app = express();
 
@@ -99,6 +100,7 @@ app.use('/api/owner/companies', ownerCompanyRoutes);
 app.use('/api/owner/tickets', ownerTicketRoutes);
 app.use('/api', adminSignupLinkRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/owner/api-keys', ownerApiKeyRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'not_found', message: `No route: ${req.method} ${req.path}` }));
 

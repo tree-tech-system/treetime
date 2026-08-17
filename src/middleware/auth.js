@@ -38,6 +38,24 @@ async function authenticate(req, res, next) {
         return next();
       }
     }
+
+    // Separate, narrower credential type for automation that needs a handful of
+    // owner-level actions (changelog entries, e2e impersonation) without a full
+    // owner login session. Deliberately a different table/type from api_keys
+    // above, which are per-company and never see owner-only routes.
+    const { rows: ownerRows } = await pool.query(
+      'SELECT * FROM owner_api_keys WHERE key_prefix = $1 AND active = TRUE',
+      [prefix]
+    );
+    for (const row of ownerRows) {
+      const match = await bcrypt.compare(apiKey, row.key_hash);
+      if (match) {
+        pool.query('UPDATE owner_api_keys SET last_used_at = now() WHERE id = $1', [row.id]).catch(() => {});
+        req.auth = { type: 'owner_apikey', ownerKeyId: row.id, scopes: row.scopes, name: row.name, ownerId: row.created_by };
+        return next();
+      }
+    }
+
     return res.status(401).json({ error: 'invalid_api_key', message: 'API key is invalid or inactive.' });
   }
 
@@ -72,4 +90,15 @@ function requireOwner(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, requireRole, requireScope, requireOwner };
+// Like requireOwner, but also lets through an owner_api_keys credential that
+// was issued with this specific scope -- for automation (CI, e2e checks) that
+// needs one or two owner-only actions without a full owner login session.
+function requireOwnerScope(scope) {
+  return (req, res, next) => {
+    if (req.auth?.type === 'owner') return next();
+    if (req.auth?.type === 'owner_apikey' && req.auth.scopes?.includes(scope)) return next();
+    return res.status(403).json({ error: 'forbidden', message: `Requires an owner session or an owner API key with scope: ${scope}` });
+  };
+}
+
+module.exports = { authenticate, requireRole, requireScope, requireOwner, requireOwnerScope };
