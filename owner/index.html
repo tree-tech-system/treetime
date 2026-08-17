@@ -209,6 +209,7 @@
     <div class="nav-item" data-page="guides">🎥 הדרכות</div>
     <div class="nav-item" data-page="branding">🎨 מיתוג</div>
     <div class="nav-item" data-page="changelog">📜 עדכוני מערכת</div>
+    <div class="nav-item" data-page="apikeys">🔑 מפתחות API</div>
     <div class="sidebar-foot">
       <div id="ownerWho"></div>
       <button id="changePasswordBtn" style="margin-top:8px;">שינוי סיסמה</button>
@@ -379,6 +380,38 @@
       <div class="hint" style="margin-bottom:16px;">יומן כל שינוי שבוצע במערכת — מתעדכן אוטומטית בכל שינוי אמיתי. לחץ על רישום כדי לראות פרטים מלאים.</div>
       <div id="changelogList"></div>
     </div>
+
+    <!-- Owner API keys page -->
+    <div id="page-apikeys" class="hidden">
+      <div class="page-head"><h2>מפתחות API</h2></div>
+      <div class="hint" style="margin-bottom:16px;">מפתחות לאוטומציה (CI, בדיקות, רישום אוטומטי ליומן שינויים) — כל מפתח מוגבל בדיוק להרשאות שסימנת לו, לא גישת owner מלאה. הערך הגולמי מוצג פעם אחת בלבד בעת היצירה.</div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin-bottom:14px;">מפתח חדש</h3>
+        <input type="text" id="apiKeyNameInput" placeholder="שם למפתח, למשל CI automation" style="margin-bottom:12px;">
+        <div style="display:flex; gap:18px; margin-bottom:14px; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer;">
+            <input type="checkbox" id="scopeChangelog" checked> רישום ליומן שינויים (changelog:write)
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer;">
+            <input type="checkbox" id="scopeImpersonate"> כניסה כמשתמש לבדיקות (impersonate)
+          </label>
+        </div>
+        <button class="btn-primary btn-sm" style="width:auto;" id="createApiKeyBtn">צור מפתח</button>
+        <div id="apiKeyResult" class="hidden" style="margin-top:14px; padding:12px; border:1px solid var(--border); border-radius:10px; background:#F7FBF8;">
+          <div class="hint" style="margin-bottom:8px;">⚠️ תעתיק עכשיו — הוא לא יוצג שוב לעולם:</div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <code id="apiKeyRawValue" class="mono" style="font-size:12.5px; word-break:break-all; flex:1;"></code>
+            <button class="btn-outline btn-sm" id="copyApiKeyBtn" style="white-space:nowrap;">העתק</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:14px;">מפתחות קיימים</h3>
+        <div id="apiKeysList"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -500,13 +533,14 @@ document.querySelectorAll('.nav-item').forEach((el) => {
 
 function goToPage(page) {
   document.querySelectorAll('.nav-item').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
-  ['page-dashboard', 'page-companies', 'page-company-detail', 'page-tickets', 'page-ticket-detail', 'page-guides', 'page-branding', 'page-changelog'].forEach((id) => $(id).classList.add('hidden'));
+  ['page-dashboard', 'page-companies', 'page-company-detail', 'page-tickets', 'page-ticket-detail', 'page-guides', 'page-branding', 'page-changelog', 'page-apikeys'].forEach((id) => $(id).classList.add('hidden'));
   if (page === 'dashboard') { $('page-dashboard').classList.remove('hidden'); loadOwnerDashboard(); }
   if (page === 'companies') { $('page-companies').classList.remove('hidden'); loadCompanies(); }
   if (page === 'tickets') { $('page-tickets').classList.remove('hidden'); loadTickets(); }
   if (page === 'guides') { $('page-guides').classList.remove('hidden'); loadGuides(); }
   if (page === 'branding') { $('page-branding').classList.remove('hidden'); $('brandingPreview').src = `/api/branding/logo?t=${Date.now()}`; }
   if (page === 'changelog') { $('page-changelog').classList.remove('hidden'); loadChangelog(); }
+  if (page === 'apikeys') { $('page-apikeys').classList.remove('hidden'); loadOwnerApiKeys(); }
 }
 
 const STATUS_LABEL = { active: 'פעיל', trial: 'פעיל', suspended: 'מושהה', cancelled: 'מבוטל' };
@@ -740,6 +774,60 @@ async function deleteAdminInviteLink(id) {
   try {
     await api(`/admin-signup-links/${id}`, { method: 'DELETE' });
     loadAdminInviteLinks();
+  } catch (err) { toast('שגיאה: ' + err.message); }
+}
+
+async function loadOwnerApiKeys() {
+  const wrap = $('apiKeysList');
+  wrap.innerHTML = '<div class="empty-state">טוען...</div>';
+  try {
+    const keys = await api('/api-keys');
+    wrap.innerHTML = keys.length ? keys.map((k) => {
+      const created = new Date(k.created_at).toLocaleDateString('he-IL');
+      const lastUsed = k.last_used_at ? new Date(k.last_used_at).toLocaleDateString('he-IL') : 'מעולם לא';
+      return `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);">
+          <div style="min-width:0;">
+            <div style="font-weight:600; font-size:13.5px;">${k.name}</div>
+            <div class="mono" style="font-size:11px; color:var(--muted);">${k.key_prefix}... · ${(k.scopes || []).join(', ')}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">נוצר: ${created} · שימוש אחרון: ${lastUsed}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+            <span class="badge ${k.active ? 'active' : 'suspended'}">${k.active ? 'פעיל' : 'בוטל'}</span>
+            ${k.active ? `<button class="btn-danger-outline btn-sm" onclick="revokeOwnerApiKey(${k.id})">בטל</button>` : ''}
+          </div>
+        </div>`;
+    }).join('') : '<div class="empty-state" style="padding:10px 0;">עדיין לא נוצרו מפתחות</div>';
+  } catch (err) {
+    wrap.innerHTML = `<div class="error">שגיאה בטעינת מפתחות: ${err.message}</div>`;
+  }
+}
+
+$('createApiKeyBtn').addEventListener('click', async () => {
+  const name = $('apiKeyNameInput').value.trim();
+  if (!name) { toast('צריך שם למפתח'); return; }
+  const scopes = [];
+  if ($('scopeChangelog').checked) scopes.push('changelog:write');
+  if ($('scopeImpersonate').checked) scopes.push('impersonate');
+  if (!scopes.length) { toast('צריך לבחור לפחות הרשאה אחת'); return; }
+  try {
+    const created = await api('/api-keys', { method: 'POST', body: JSON.stringify({ name, scopes }) });
+    $('apiKeyRawValue').textContent = created.api_key;
+    $('apiKeyResult').classList.remove('hidden');
+    $('apiKeyNameInput').value = '';
+    loadOwnerApiKeys();
+  } catch (err) { toast('שגיאה: ' + err.message); }
+});
+
+$('copyApiKeyBtn').addEventListener('click', () => {
+  navigator.clipboard.writeText($('apiKeyRawValue').textContent).then(() => toast('המפתח הועתק'));
+});
+
+async function revokeOwnerApiKey(id) {
+  if (!confirm('לבטל את המפתח? כל אוטומציה שמשתמשת בו תפסיק לעבוד.')) return;
+  try {
+    await api(`/api-keys/${id}`, { method: 'DELETE' });
+    loadOwnerApiKeys();
   } catch (err) { toast('שגיאה: ' + err.message); }
 }
 
