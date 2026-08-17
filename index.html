@@ -296,12 +296,28 @@
   .field-row{ display:flex; gap:12px; }
   .field-row .field{ flex:1; }
   .hint{ font-size:11.5px; color:var(--muted); margin-top:4px; }
-  .dashboard-widget{ min-height:60px; }
+  .dashboard-widget{ min-height:60px; transition:opacity .15s; }
+  .dashboard-widget[data-draggable="1"]{ cursor:grab; }
+  .dashboard-widget.dragging{ opacity:.5; cursor:grabbing; box-shadow:0 8px 20px rgba(0,0,0,.2); z-index:5; }
+  .widget-size-quarter{ flex:0 0 calc(25% - 9px); max-width:calc(25% - 9px); }
+  .widget-size-half{ flex:0 0 calc(50% - 6px); max-width:calc(50% - 6px); }
+  .widget-size-three_quarter{ flex:0 0 calc(75% - 3px); max-width:calc(75% - 3px); }
+  .widget-size-full{ flex:0 0 100%; max-width:100%; }
+  @media (max-width:720px){
+    .widget-size-quarter, .widget-size-half, .widget-size-three_quarter{ flex:0 0 100%; max-width:100%; }
+  }
   .widget-resize-handle{
-    position:absolute; left:2px; bottom:2px; width:14px; height:14px; cursor:nwse-resize;
+    position:absolute; left:2px; bottom:2px; width:14px; height:14px; cursor:ns-resize;
     opacity:.35; border-left:2px solid var(--muted); border-bottom:2px solid var(--muted); border-radius:0 0 0 3px;
   }
   .widget-resize-handle:hover{ opacity:.8; }
+  .widget-size-picker{ display:flex; gap:2px; }
+  .widget-size-btn{
+    width:20px; height:20px; padding:0; border:1px solid var(--border); background:var(--panel); border-radius:4px;
+    font-size:10px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--muted);
+  }
+  .widget-size-btn:hover{ border-color:var(--green-bright); color:var(--ink); }
+  .widget-size-btn.active{ background:var(--green); color:#fff; border-color:var(--green); }
 
   .checkbox-list{
     border:1px solid var(--border); border-radius:9px; background:#fff;
@@ -1529,31 +1545,33 @@ function renderDashboard(){
 
     ${banners}
 
-    <div class="panel" style="margin-bottom:18px;">
-      <div class="panel-head"><h3>מגמת שעות — 6 שבועות אחרונים</h3></div>
-      <div class="panel-pad">
-        <div class="bars">
-          ${weeks.map(w=>`
-            <div class="bar-col">
-              <div class="bar-val">${w.mins? fmtHoursShort(w.mins):''}</div>
-              <div class="bar-wrap"><div class="bar" style="height:${Math.max(4,(w.mins/maxWeek*100))}%;"></div></div>
-              <div class="bar-label">${w.label}</div>
-            </div>
-          `).join('')}
+    ${renderDashboardWidgetsSection()}
+
+    <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:18px;">
+      <div class="panel" style="flex:1 1 420px;">
+        <div class="panel-head"><h3>מגמת שעות — 6 שבועות אחרונים</h3></div>
+        <div class="panel-pad">
+          <div class="bars">
+            ${weeks.map(w=>`
+              <div class="bar-col">
+                <div class="bar-val">${w.mins? fmtHoursShort(w.mins):''}</div>
+                <div class="bar-wrap"><div class="bar" style="height:${Math.max(4,(w.mins/maxWeek*100))}%;"></div></div>
+                <div class="bar-label">${w.label}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="flex:1 1 420px;">
+        <div class="panel-head">
+          <h3>כל השעונים הפתוחים במערכת</h3>
+          <div class="sub">${state.activeTimers.length} פעילים</div>
+        </div>
+        <div id="allTimersWrap">
         </div>
       </div>
     </div>
-
-    <div class="panel" style="margin-top:18px;">
-      <div class="panel-head">
-        <h3>כל השעונים הפתוחים במערכת</h3>
-        <div class="sub">${state.activeTimers.length} פעילים</div>
-      </div>
-      <div id="allTimersWrap">
-      </div>
-    </div>
-
-    ${renderDashboardWidgetsSection()}
   `;
   return html;
 }
@@ -1646,37 +1664,52 @@ function openEditListWidgetModal(id){
   if(w) openAddListWidgetModal(w);
 }
 
+const WIDGET_SIZE_LABELS = [['quarter','¼'],['half','½'],['three_quarter','¾'],['full','⛶']];
+
+function renderWidgetSizePicker(w, admin){
+  if(!admin) return '';
+  const size = w.size || (w.type==='kpi' ? 'quarter' : 'full');
+  return `<div class="widget-size-picker" title="רוחב הוויג'ט">${WIDGET_SIZE_LABELS.map(([key,label])=>
+    `<button type="button" class="widget-size-btn${size===key?' active':''}" title="${key==='full'?'מסך מלא':label}" onclick="setWidgetSize(${w.id},'${key}')">${label}</button>`
+  ).join('')}</div>`;
+}
+
 function renderOneDashboardWidget(w, i, total, admin){
   const moveButtons = admin ? `
     ${i>0?`<button class="icon-btn" title="הזז למעלה" onclick="moveDashboardWidget(${w.id},-1)">↑</button>`:''}
     ${i<total-1?`<button class="icon-btn" title="הזז למטה" onclick="moveDashboardWidget(${w.id},1)">↓</button>`:''}
     <button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>
   ` : '';
-  const resizeHandle = admin ? `<div class="widget-resize-handle" title="גרור לשינוי גודל"></div>` : '';
+  const size = w.size || (w.type==='kpi' ? 'quarter' : 'full');
+  const sizePicker = renderWidgetSizePicker(w, admin);
+  const resizeHandle = admin ? `<div class="widget-resize-handle" title="גרור לשינוי גובה"></div>` : '';
+  const draggableAttr = admin ? `data-draggable="1"` : '';
 
   if(w.type==='kpi'){
     const val = (w.value===null || w.value===undefined) ? '—' : (Number.isInteger(w.value) ? w.value : w.value.toFixed(1));
-    const sizeStyle = (w.width_px?`width:${w.width_px}px; flex:0 0 auto;`:'flex:1 1 220px;') + (w.height_px?`height:${w.height_px}px;`:'');
+    const heightStyle = w.height_px?`height:${w.height_px}px;`:'';
     return `
-      <div class="panel dashboard-widget" data-widget-id="${w.id}" style="padding:14px 16px; min-width:200px; position:relative; box-sizing:border-box; ${sizeStyle}">
+      <div class="panel dashboard-widget widget-size-${size}" data-widget-id="${w.id}" ${draggableAttr} style="padding:14px 16px; min-width:200px; position:relative; box-sizing:border-box; ${heightStyle}">
         <div class="cell-muted" style="font-size:12.5px;">${w.title}</div>
-        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px; flex-wrap:wrap;">
           <div style="font-size:26px; font-weight:800;">${val}</div>
-          <div style="display:flex; gap:4px; flex-shrink:0;">
+          <div style="display:flex; gap:4px; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end;">
             ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditKpiWidgetModal(${w.id})">${ICON.edit}</button>`:''}
+            ${sizePicker}
             ${moveButtons}
           </div>
         </div>
         ${resizeHandle}
       </div>`;
   }
-  const sizeStyle = (w.width_px?`width:${w.width_px}px; flex:0 0 auto;`:'flex:1 1 100%;') + (w.height_px?`height:${w.height_px}px; overflow:auto;`:'');
+  const heightStyle = w.height_px?`height:${w.height_px}px; overflow:auto;`:'';
   return `
-    <div class="panel dashboard-widget" data-widget-id="${w.id}" style="padding:14px 16px; position:relative; box-sizing:border-box; ${sizeStyle}">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+    <div class="panel dashboard-widget widget-size-${size}" data-widget-id="${w.id}" ${draggableAttr} style="padding:14px 16px; position:relative; box-sizing:border-box; ${heightStyle}">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
         <div style="font-weight:700;">${w.title}</div>
-        <div style="display:flex; gap:4px;">
+        <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">
           ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditListWidgetModal(${w.id})">${ICON.edit}</button>`:''}
+          ${sizePicker}
           ${moveButtons}
         </div>
       </div>
@@ -1685,52 +1718,111 @@ function renderOneDashboardWidget(w, i, total, admin){
     </div>`;
 }
 
-function wireDashboardWidgetResize(){
+async function setWidgetSize(id, size){
+  try{
+    await apiCall(`/dashboard-widgets/${id}`, { method:'PATCH', body: JSON.stringify({ size }) });
+    const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
+    if(w) w.size = size;
+    renderAll();
+  }catch(err){ toast('שגיאה בשינוי גודל: '+err.message); }
+}
+
+function wireDashboardWidgetInteractions(){
   document.querySelectorAll('.widget-resize-handle').forEach(handle=>{
     if(handle.dataset.wired) return;
     handle.dataset.wired = '1';
     handle.addEventListener('mousedown', onWidgetResizeStart);
   });
+  document.querySelectorAll('.dashboard-widget[data-draggable="1"]').forEach(el=>{
+    if(el.dataset.dragWired) return;
+    el.dataset.dragWired = '1';
+    el.addEventListener('mousedown', onWidgetDragMouseDown);
+  });
 }
 
+// Resize handle changes height only now -- width is one of the 4 preset sizes (see setWidgetSize).
 let resizingWidget = null;
 function onWidgetResizeStart(e){
   e.preventDefault();
   const el = e.target.closest('.dashboard-widget');
   if(!el) return;
-  resizingWidget = {
-    el, id: Number(el.dataset.widgetId),
-    startX: e.clientX, startY: e.clientY,
-    startW: el.offsetWidth, startH: el.offsetHeight,
-  };
+  resizingWidget = { el, id: Number(el.dataset.widgetId), startY: e.clientY, startH: el.offsetHeight };
   document.addEventListener('mousemove', onWidgetResizeMove);
   document.addEventListener('mouseup', onWidgetResizeEnd);
 }
 function onWidgetResizeMove(e){
   if(!resizingWidget) return;
-  const dx = e.clientX - resizingWidget.startX;
   const dy = e.clientY - resizingWidget.startY;
-  const dir = document.documentElement.dir === 'rtl' || getComputedStyle(document.body).direction === 'rtl' ? -1 : 1;
-  const w = Math.max(200, resizingWidget.startW + dir*dx);
   const h = Math.max(60, resizingWidget.startH + dy);
-  resizingWidget.el.style.width = w+'px';
   resizingWidget.el.style.height = h+'px';
-  resizingWidget.el.style.flex = '0 0 auto';
-  resizingWidget.width = Math.round(w);
   resizingWidget.height = Math.round(h);
 }
 async function onWidgetResizeEnd(){
   document.removeEventListener('mousemove', onWidgetResizeMove);
   document.removeEventListener('mouseup', onWidgetResizeEnd);
   if(!resizingWidget) return;
-  const { id, width, height } = resizingWidget;
+  const { id, height } = resizingWidget;
   resizingWidget = null;
-  if(!width || !height) return;
+  if(!height) return;
   try{
-    await apiCall(`/dashboard-widgets/${id}`, { method:'PATCH', body: JSON.stringify({ width_px: width, height_px: height }) });
+    await apiCall(`/dashboard-widgets/${id}`, { method:'PATCH', body: JSON.stringify({ height_px: height }) });
     const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
-    if(w){ w.width_px = width; w.height_px = height; }
-  }catch(err){ toast('שגיאה בשמירת גודל: '+err.message); }
+    if(w) w.height_px = height;
+  }catch(err){ toast('שגיאה בשמירת גובה: '+err.message); }
+}
+
+// Long mouse press (350ms, without moving off the widget) starts a drag; moving the mouse
+// live-reorders the DOM among sibling widgets; releasing persists the new order.
+let dragPending = null;
+let dragActive = null;
+function onWidgetDragMouseDown(e){
+  if(e.button !== 0) return;
+  if(e.target.closest('button, select, input, a, .widget-resize-handle')) return;
+  const el = e.currentTarget;
+  dragPending = { el, startX: e.clientX, startY: e.clientY };
+  dragPending.timer = setTimeout(()=>{
+    if(!dragPending) return;
+    dragActive = { el: dragPending.el };
+    dragPending = null;
+    el.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+  }, 350);
+  document.addEventListener('mousemove', onWidgetDragMouseMove);
+  document.addEventListener('mouseup', onWidgetDragMouseUp);
+}
+function onWidgetDragMouseMove(e){
+  if(dragPending){
+    if(Math.abs(e.clientX-dragPending.startX)>6 || Math.abs(e.clientY-dragPending.startY)>6){
+      clearTimeout(dragPending.timer);
+      dragPending = null;
+    }
+    return;
+  }
+  if(!dragActive) return;
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  const targetWidget = hit && hit.closest('.dashboard-widget');
+  if(!targetWidget || targetWidget === dragActive.el) return;
+  const container = targetWidget.parentElement;
+  if(container !== dragActive.el.parentElement) return;
+  const rect = targetWidget.getBoundingClientRect();
+  const before = (e.clientX - rect.left) < rect.width/2;
+  container.insertBefore(dragActive.el, before ? targetWidget : targetWidget.nextSibling);
+}
+async function onWidgetDragMouseUp(){
+  document.removeEventListener('mousemove', onWidgetDragMouseMove);
+  document.removeEventListener('mouseup', onWidgetDragMouseUp);
+  if(dragPending){ clearTimeout(dragPending.timer); dragPending = null; }
+  if(!dragActive) return;
+  const el = dragActive.el;
+  el.classList.remove('dragging');
+  document.body.style.userSelect = '';
+  dragActive = null;
+  const order = Array.from(el.parentElement.querySelectorAll('.dashboard-widget')).map(x=>Number(x.dataset.widgetId));
+  try{
+    await apiCall('/dashboard-widgets/reorder', { method:'POST', body: JSON.stringify({ order }) });
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה בשמירת הסדר: '+err.message); }
 }
 
 async function renderDashboardWidgetLists(){
@@ -4610,7 +4702,7 @@ function renderAll(){
   if(activePage==='dashboard' && isAdmin()){
     renderTimerLists();
     renderDashboardWidgetLists();
-    wireDashboardWidgetResize();
+    wireDashboardWidgetInteractions();
   }
   if(activePage==='reports'){
     bindReportFilters();
