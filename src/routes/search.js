@@ -2,7 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireScope } = require('../middleware/auth');
-const { ENTITIES, listEntities, listFields, runSearch } = require('../lib/searchEngine');
+const { ENTITIES, listEntities, listFields, listAllFields, runSearch } = require('../lib/searchEngine');
 
 const router = express.Router();
 router.use(authenticate, requireScope('read'));
@@ -19,6 +19,25 @@ router.use(authenticate, requireScope('read'));
  */
 router.get('/entities', (req, res) => {
   res.json(listEntities());
+});
+
+/**
+ * @openapi
+ * /api/search/fields:
+ *   get:
+ *     tags: [Search]
+ *     summary: Union of every searchable field across every entity, deduplicated by key
+ *     description: >
+ *       Exists for integration builders that can't cleanly make a field picker depend on
+ *       an already-chosen entity (e.g. a dropdown nested inside another parameter in
+ *       Make.com's custom app builder). Safe to over-offer -- POST .../query still
+ *       rejects any field that isn't actually valid for the entity being queried.
+ *     security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+ *     responses:
+ *       200: { description: "[{ key, label, type, operators }]" }
+ */
+router.get('/fields', (req, res) => {
+  res.json(listAllFields());
 });
 
 /**
