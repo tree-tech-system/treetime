@@ -605,6 +605,7 @@ const ICON = {
   support: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-7h3z"/><path d="M3 19a2 2 0 0 0 2 2h1v-7H3z"/></svg>`,
   tasks: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
   chevronDown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`,
+  key: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.5 12.5L19 4"/><path d="M17 6l2 2"/><path d="M14.5 8.5l2 2"/></svg>`,
 };
 
 /* ---------------------------- STATE / STORAGE ---------------------------- */
@@ -675,7 +676,7 @@ function seedData(){
 let state = {
   freelancers: [], clients: [], entries: [], activeTimers: [],
   editRequests: [], supportTickets: [], clientFields: [], intakeLinks: [],
-  employeeFields: [], employeeIntakeLinks: [], notifications: [], tasks: [], dashboardWidgets: [],
+  employeeFields: [], employeeIntakeLinks: [], notifications: [], tasks: [], dashboardWidgets: [], apiKeys: [],
   notificationSettings: { quota80_notify_admin:true, quota80_notify_employee:false, edit_request_notify_admin:true, support_reply_notify_admin:true, support_reply_notify_employee:false,
     quota80_email_admin:false, quota80_email_employee:false, edit_request_email_admin:false, support_reply_email_admin:false, support_reply_email_employee:false },
   currentUserId: null, currentRole: 'freelancer',
@@ -928,7 +929,7 @@ function mapTask(t){
 }
 
 async function refreshData(){
-  const [employees, projects, entries, editRequests, clientFields, intakeLinks, notificationSettings, employeeFields, employeeIntakeLinks, tickets, notifications, tasks, dashboardWidgets] = await Promise.all([
+  const [employees, projects, entries, editRequests, clientFields, intakeLinks, notificationSettings, employeeFields, employeeIntakeLinks, tickets, notifications, tasks, dashboardWidgets, apiKeys] = await Promise.all([
     apiCall('/employees'),
     apiCall('/projects'),
     apiCall('/time-entries'),
@@ -945,6 +946,9 @@ async function refreshData(){
     // a brief window right after a push where this endpoint (or its migration) might not
     // exist on the server yet. Isolate it so that window can't break login for everyone.
     apiCall('/dashboard-widgets').catch(() => []),
+    // /api-keys is admin-only server-side (403 for employees) -- skip the call
+    // entirely for non-admins instead of letting it fail the whole Promise.all.
+    isAdmin() ? apiCall('/api-keys') : Promise.resolve([]),
   ]);
   state.freelancers = employees.map(mapFreelancer);
   state.clients = projects.map(mapClient);
@@ -960,6 +964,7 @@ async function refreshData(){
   state.supportTickets = tickets.map(mapTicket);
   state.tasks = tasks.map(mapTask);
   state.dashboardWidgets = dashboardWidgets;
+  state.apiKeys = apiKeys;
 }
 
 async function boot(){
@@ -4475,6 +4480,7 @@ const SETTINGS_CATEGORIES = [
   { id:'support', label:'תמיכה', icon:ICON.support },
   { id:'autoClose', label:'סגירה אוטומטית של דיווחי עבודה פתוחים', icon:ICON.clock },
   { id:'excelExport', label:'ייצוא / ייבוא נתונים', icon:ICON.fileExport },
+  { id:'integrations', label:'אינטגרציות (API)', icon:ICON.key },
 ];
 let settingsOpenCategory = 'general';
 
@@ -4509,6 +4515,7 @@ function renderSettingsCategoryBody(catId){
   if(catId==='notifications') return renderNotificationSettingsPanel();
   if(catId==='users') return renderFreelancersPage();
   if(catId==='support') return renderSupportPage();
+  if(catId==='integrations') return renderApiKeysPanel();
   if(catId==='excelExport'){
     return `
       <div class="sub" style="margin-bottom:12px;">כל אפשרויות הייצוא במערכת רוכזו כאן במקום אחד</div>
@@ -4572,6 +4579,85 @@ function renderSettingsCategoryBody(catId){
     `;
   }
   return '';
+}
+
+/* ---- API keys (external integrations, e.g. Make/Zapier) -- admin only ---- */
+function renderApiKeysPanel(){
+  const keys = state.apiKeys || [];
+  return `
+    <div class="hint" style="margin-bottom:16px;">
+      מפתח API מאפשר לתוכנה חיצונית (כמו Make, Zapier, או כל מערכת אוטומציה אחרת) להתחבר ל-TreeTime ולמשוך או לעדכן נתונים בשמכם — בלי שתצטרכו למסור סיסמה. רק אדמין יכול ליצור, לראות או לבטל מפתחות; עובד רגיל לא רואה את המסך הזה כלל.
+    </div>
+
+    <div style="margin-bottom:22px;">
+      <div class="field"><label>שם למפתח (כדי לזכור בעתיד למה הוא משמש)</label><input type="text" id="newApiKeyName" placeholder="לדוגמה: חיבור ל-Make"></div>
+      <div style="display:flex; gap:18px; margin:4px 0 14px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer;">
+          <input type="checkbox" id="newApiKeyScopeRead" checked> קריאת מידע
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer;">
+          <input type="checkbox" id="newApiKeyScopeWrite"> כתיבה ועדכון מידע
+        </label>
+      </div>
+      <button class="btn btn-primary" style="width:auto;" onclick="createApiKeyForSettings()">${ICON.plus} צור מפתח חדש</button>
+    </div>
+
+    <div style="border-top:1px solid var(--border); padding-top:16px;">
+      <div class="sub" style="margin-bottom:10px;">מפתחות קיימים</div>
+      ${keys.length ? keys.map(k=>`
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);">
+          <div style="min-width:0;">
+            <div style="font-weight:600; font-size:13.5px;">${k.name}</div>
+            <div class="mono" style="font-size:11px; color:var(--muted);">${k.key_prefix}... · ${(k.scopes||[]).map(s=>s==='read'?'קריאה':s==='write'?'כתיבה':s).join(', ')}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">נוצר: ${new Date(k.created_at).toLocaleDateString('he-IL')} · שימוש אחרון: ${k.last_used_at ? new Date(k.last_used_at).toLocaleDateString('he-IL') : 'מעולם לא'}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+            <span class="pill ${k.active?'pill-green':'pill-gray'}">${k.active?'פעיל':'בוטל'}</span>
+            ${k.active ? `<button class="btn btn-sm btn-ghost" onclick="revokeApiKeyFromSettings(${k.id})">${ICON.trash} בטל</button>` : ''}
+          </div>
+        </div>
+      `).join('') : '<div class="hint">עדיין לא נוצרו מפתחות</div>'}
+    </div>
+  `;
+}
+
+async function createApiKeyForSettings(){
+  const name = document.getElementById('newApiKeyName').value.trim();
+  if(!name){ toast('צריך לתת שם למפתח'); return; }
+  const scopes = [];
+  if(document.getElementById('newApiKeyScopeRead').checked) scopes.push('read');
+  if(document.getElementById('newApiKeyScopeWrite').checked) scopes.push('write');
+  if(!scopes.length){ toast('צריך לבחור לפחות הרשאה אחת'); return; }
+  try{
+    const created = await apiCall('/api-keys', { method:'POST', body: JSON.stringify({ name, scopes }) });
+    await refreshData();
+    renderAll();
+    openModal(`
+      <div class="modal-head"><h3>המפתח נוצר בהצלחה</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+      <div class="modal-body">
+        <div class="hint" style="margin-bottom:10px;">⚠️ זו הפעם היחידה שהמפתח הזה יוצג. תעתיקו אותו עכשיו ותשמרו אותו במקום בטוח (למשל, תדביקו אותו ישר במסך החיבור של Make) — TreeTime לא יציג אותו שוב.</div>
+        <div class="field"><input type="text" id="newApiKeyValue" value="${created.api_key}" readonly onclick="this.select()"></div>
+        <button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="copyNewApiKey()">העתק מפתח</button>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">סגור</button></div>
+    `);
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+function copyNewApiKey(){
+  const el = document.getElementById('newApiKeyValue');
+  el.select();
+  navigator.clipboard?.writeText(el.value).then(()=>toast('המפתח הועתק')).catch(()=>toast('לא ניתן היה להעתיק אוטומטית — יש להעתיק ידנית'));
+}
+
+async function revokeApiKeyFromSettings(id){
+  if(!confirm('לבטל את המפתח? כל אינטגרציה שמשתמשת בו (למשל ב-Make) תפסיק לעבוד מיד.')) return;
+  try{
+    await apiCall(`/api-keys/${id}`, { method:'DELETE' });
+    await refreshData();
+    renderAll();
+    toast('המפתח בוטל');
+  }catch(err){ toast('שגיאה: '+err.message); }
 }
 
 function renderSettingsPage(){

@@ -110,7 +110,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 | `projects.js` | CRUD **לקוחות** |
 | `timeEntries.js` | שעונים/דיווחי זמן |
 | `tasks.js` | משימות — קישור ללקוח/עובד, דדליין, סטטוס |
-| `apiKeys.js`, `webhooks.js` | אינטגרציות חיצוניות |
+| `apiKeys.js`, `webhooks.js` | אינטגרציות חיצוניות (מפתחות per-company, `X-API-Key` header — לא `Authorization: Bearer`). ניהול UI: `index.html` → הגדרות → "אינטגרציות (API)", admin בלבד (18.8.2026) — לפני זה ה-endpoints היו קיימים אבל בלי שום מסך, רק curl |
 | `reports.js` | דוחות/דשבורד |
 | `tickets.js` | פניות תמיכה (צד לקוח) |
 | `editRequests.js` | בקשות עריכה לדיווח זמן |
