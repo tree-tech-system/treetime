@@ -77,7 +77,7 @@ router.post('/', body('entry_id').isInt(), body('reason').isString().trim().notE
       notifyAdmins(req.auth.companyId, 'edit_request', 'בקשת עריכת דיווח חדשה', summary, 'editRequests');
     }
     if (s.edit_request_email_admin) {
-      sendAdminEmails(req.auth.companyId, 'בקשת עריכת דיווח חדשה', summary).catch(() => {});
+      sendAdminEmails(req.auth.companyId, 'בקשת עריכת דיווח חדשה', summary, 'edit_request').catch(() => {});
     }
   }
 
