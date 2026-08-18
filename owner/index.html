@@ -1428,9 +1428,9 @@ const EMAIL_STATUS_LABEL = { sent: 'נשלח', failed: 'נכשל', skipped: 'ד�
 async function loadEmailSettings() {
   try {
     const [s, accounts, recipients] = await Promise.all([
-      api('/owner/email/settings'),
-      api('/owner/email/accounts'),
-      api('/owner/email/recipients'),
+      api('/email/settings'),
+      api('/email/accounts'),
+      api('/email/recipients'),
     ]);
     emailRecipients = recipients;
     renderGoogleAccounts(accounts);
@@ -1480,7 +1480,7 @@ function renderGoogleAccounts(accounts) {
 $('connectGoogleBtn').addEventListener('click', async () => {
   $('googleAccountsError').classList.add('hidden');
   try {
-    const res = await api('/owner/email/google/start', { method: 'POST' });
+    const res = await api('/email/google/start', { method: 'POST' });
     window.location.href = res.url;
   } catch (err) {
     $('googleAccountsError').textContent = err.message;
@@ -1490,7 +1490,7 @@ $('connectGoogleBtn').addEventListener('click', async () => {
 
 async function setDefaultGoogleAccount(id) {
   try {
-    await api(`/owner/email/accounts/${id}/default`, { method: 'PATCH' });
+    await api(`/email/accounts/${id}/default`, { method: 'PATCH' });
     toast('חשבון ברירת המחדל עודכן');
     loadEmailSettings();
   } catch (err) { toast('שגיאה: ' + err.message); }
@@ -1499,7 +1499,7 @@ async function setDefaultGoogleAccount(id) {
 async function disconnectGoogleAccount(id) {
   if (!confirm('לנתק את החשבון הזה? המערכת תפסיק לשלוח דרכו.')) return;
   try {
-    await api(`/owner/email/accounts/${id}`, { method: 'DELETE' });
+    await api(`/email/accounts/${id}`, { method: 'DELETE' });
     toast('החשבון נותק');
     loadEmailSettings();
   } catch (err) { toast('שגיאה: ' + err.message); }
@@ -1508,7 +1508,7 @@ async function disconnectGoogleAccount(id) {
 async function loadEmailLog(reset = true) {
   if (reset) emailLogOffset = 0;
   try {
-    const res = await api(`/owner/email/log?limit=${EMAIL_LOG_PAGE_SIZE}&offset=${emailLogOffset}`);
+    const res = await api(`/email/log?limit=${EMAIL_LOG_PAGE_SIZE}&offset=${emailLogOffset}`);
     const rowsHtml = res.items.map((l) => `
       <tr>
         <td class="mono" style="font-size:12px;">${new Date(l.sent_at).toLocaleString('he-IL')}</td>
@@ -1603,7 +1603,7 @@ $('pickRecipientsBtn').addEventListener('click', openRecipientPickerModal);
 $('saveSmtpBtn').addEventListener('click', async () => {
   $('smtpError').classList.add('hidden');
   try {
-    await api('/owner/email/settings', {
+    await api('/email/settings', {
       method: 'PATCH',
       body: JSON.stringify({
         host: $('smtpHost').value.trim() || null,
@@ -1631,7 +1631,7 @@ $('sendTestEmailBtn').addEventListener('click', async () => {
   btn.disabled = true;
   resultEl.textContent = 'שולח...';
   try {
-    await api('/owner/email/test-email', { method: 'POST', body: JSON.stringify({ to }) });
+    await api('/email/test-email', { method: 'POST', body: JSON.stringify({ to }) });
     resultEl.textContent = '✅ נשלח בהצלחה — בדוק את תיבת הדואר.';
     loadEmailLog();
   } catch (err) {
@@ -1667,7 +1667,7 @@ $('sendBroadcastBtn').addEventListener('click', async () => {
   try {
     const payload = { subject, body, target };
     if (target === 'manual') payload.employee_ids = [...selectedRecipientIds];
-    const res = await api('/owner/email/broadcast', { method: 'POST', body: JSON.stringify(payload) });
+    const res = await api('/email/broadcast', { method: 'POST', body: JSON.stringify(payload) });
     toast(`נשלח בהצלחה ל-${res.sent_count} נמענים`);
     $('broadcastSubject').value = '';
     $('broadcastBody').value = '';
