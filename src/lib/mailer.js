@@ -2,32 +2,66 @@ const nodemailer = require('nodemailer');
 const pool = require('../db/pool');
 
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@tree-tech-system.com';
-const MAIL_FROM = process.env.MAIL_FROM || '"TreeTime" <no-reply@tree-tech-system.com>';
 
-// No SMTP_HOST configured yet (e.g. local dev, or before the server .env is set up in
-// production) -> log instead of sending, so every feature that sends mail keeps working
-// end-to-end without a real mailbox. See CLAUDE.md for the one-time server .env step.
-const transporter = process.env.SMTP_HOST
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-    })
-  : null;
+// SMTP connection settings can be configured two ways: the server .env (SMTP_HOST etc.,
+// set once by whoever has SSH access) or the owner panel (src/routes/ownerEmail.js,
+// smtp_settings table) -- whichever the owner set most recently there wins per-field,
+// env vars are just the bootstrap fallback. Read fresh on every send (not cached) so a
+// settings change in the owner panel takes effect immediately, no server restart needed.
+async function getSmtpConfig() {
+  const { rows } = await pool.query('SELECT * FROM smtp_settings WHERE id = 1');
+  const db = rows[0] || {};
+  return {
+    host: db.host || process.env.SMTP_HOST || null,
+    port: db.port || Number(process.env.SMTP_PORT) || 587,
+    secure: db.host ? !!db.secure : process.env.SMTP_SECURE === 'true',
+    user: db.username || process.env.SMTP_USER || undefined,
+    pass: db.password || process.env.SMTP_PASS || undefined,
+    fromName: db.from_name || 'TreeTime',
+    fromEmail: db.from_email || 'no-reply@tree-tech-system.com',
+  };
+}
+
+function buildTransporter(cfg) {
+  return nodemailer.createTransport({
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.secure,
+    auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined,
+  });
+}
 
 // Never throws -- a mail failure must never break the action that triggered it
 // (e.g. signup succeeding even if the welcome email fails to send).
 async function sendMail({ to, subject, html, text }) {
-  if (!transporter) {
+  const cfg = await getSmtpConfig();
+  if (!cfg.host) {
     console.log(`[mailer] SMTP not configured, skipping email to ${to}: ${subject}`);
     return;
   }
   try {
-    await transporter.sendMail({ from: MAIL_FROM, replyTo: SUPPORT_EMAIL, to, subject, html, text });
+    await buildTransporter(cfg).sendMail({
+      from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
+      replyTo: SUPPORT_EMAIL,
+      to, subject, html, text,
+    });
   } catch (err) {
     console.error(`[mailer] failed to send to ${to}:`, err.message);
   }
+}
+
+// Unlike sendMail(), this DOES throw -- it backs the "send test email" button in the
+// owner panel, where silently swallowing a bad host/port/credential would defeat the point.
+async function sendTestEmail(to) {
+  const cfg = await getSmtpConfig();
+  if (!cfg.host) throw new Error('לא הוגדר שרת SMTP עדיין');
+  await buildTransporter(cfg).sendMail({
+    from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
+    replyTo: SUPPORT_EMAIL,
+    to,
+    subject: 'מייל בדיקה מ-TreeTime',
+    html: renderEmail('מייל בדיקה', 'אם זה הגיע אליך — הגדרות ה-SMTP תקינות ועובדות.'),
+  });
 }
 
 // Shared branded wrapper so every email type (reset, welcome, notifications...) looks
@@ -69,4 +103,7 @@ async function sendEmployeeEmailById(employeeId, subject, bodyHtml) {
   await sendMail({ to: rows[0].email, subject, html: renderEmail(subject, bodyHtml) });
 }
 
-module.exports = { sendMail, renderEmail, buttonHtml, sendAdminEmails, sendEmployeeEmailById, SUPPORT_EMAIL };
+module.exports = {
+  sendMail, sendTestEmail, renderEmail, buttonHtml, sendAdminEmails, sendEmployeeEmailById,
+  getSmtpConfig, SUPPORT_EMAIL,
+};

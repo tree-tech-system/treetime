@@ -210,6 +210,7 @@
     <div class="nav-item" data-page="branding">🎨 מיתוג</div>
     <div class="nav-item" data-page="changelog">📜 עדכוני מערכת</div>
     <div class="nav-item" data-page="apikeys">🔑 מפתחות API</div>
+    <div class="nav-item" data-page="email">✉️ מייל</div>
     <div class="sidebar-foot">
       <div id="ownerWho"></div>
       <button id="changePasswordBtn" style="margin-top:8px;">שינוי סיסמה</button>
@@ -418,6 +419,49 @@
         <div id="apiKeysList"></div>
       </div>
     </div>
+
+    <!-- Email settings + broadcast page -->
+    <div id="page-email" class="hidden">
+      <div class="page-head"><h2>מייל</h2></div>
+      <div class="hint" style="margin-bottom:16px;">הגדרת שרת ה-SMTP ששולח את כל המיילים האוטומטיים של המערכת (איפוס סיסמה, ברוכים הבאים, התראות...), ושליחת מייל ידני לכל האדמינים בפלטפורמה.</div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin-bottom:14px;">הגדרות SMTP</h3>
+        <div class="field-row">
+          <div><label>שרת (Host)</label><input id="smtpHost" placeholder="smtp.example.com"></div>
+          <div><label>פורט</label><input id="smtpPort" type="number" placeholder="587"></div>
+          <div><label>שם משתמש</label><input id="smtpUsername"></div>
+          <div><label>סיסמה</label><input id="smtpPassword" type="password" placeholder="השאר ריק כדי לא לשנות"></div>
+          <div><label>שם השולח</label><input id="smtpFromName" placeholder="TreeTime"></div>
+          <div><label>אימייל השולח</label><input id="smtpFromEmail" placeholder="no-reply@tree-tech-system.com"></div>
+        </div>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer; margin-top:10px;">
+          <input type="checkbox" id="smtpSecure"> חיבור מאובטח (SSL/TLS — בדרך כלל עבור פורט 465)
+        </label>
+        <div class="hint" id="smtpStatusHint" style="margin-top:10px;"></div>
+        <button class="btn-primary btn-sm" style="width:auto; margin-top:14px;" id="saveSmtpBtn">שמור הגדרות</button>
+        <div class="error hidden" id="smtpError" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin-bottom:14px;">שליחת מייל בדיקה</h3>
+        <div class="hint" style="margin-bottom:10px;">שולח מייל בדיקה עם ההגדרות השמורות כרגע, כדי לוודא שהחיבור באמת עובד.</div>
+        <div style="display:flex; gap:8px;">
+          <input id="testEmailTo" type="email" placeholder="כתובת לבדיקה" style="flex:1;">
+          <button class="btn-outline btn-sm" style="white-space:nowrap;" id="sendTestEmailBtn">שלח מייל בדיקה</button>
+        </div>
+        <div class="hint" id="testEmailResult" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:14px;">שליחת מייל לכל האדמינים</h3>
+        <div class="hint" id="broadcastAdminCount" style="margin-bottom:12px;"></div>
+        <label>נושא</label><input id="broadcastSubject" placeholder="לדוגמה: עדכון חדש במערכת">
+        <label>תוכן ההודעה</label><textarea id="broadcastBody" rows="6" placeholder="כתוב כאן את תוכן ההודעה..."></textarea>
+        <button class="btn-primary btn-sm" style="width:auto; margin-top:12px;" id="sendBroadcastBtn">שלח לכל האדמינים</button>
+        <div class="error hidden" id="broadcastError" style="margin-top:10px;"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -539,7 +583,7 @@ document.querySelectorAll('.nav-item').forEach((el) => {
 
 function goToPage(page) {
   document.querySelectorAll('.nav-item').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
-  ['page-dashboard', 'page-companies', 'page-company-detail', 'page-tickets', 'page-ticket-detail', 'page-guides', 'page-branding', 'page-changelog', 'page-apikeys'].forEach((id) => $(id).classList.add('hidden'));
+  ['page-dashboard', 'page-companies', 'page-company-detail', 'page-tickets', 'page-ticket-detail', 'page-guides', 'page-branding', 'page-changelog', 'page-apikeys', 'page-email'].forEach((id) => $(id).classList.add('hidden'));
   if (page === 'dashboard') { $('page-dashboard').classList.remove('hidden'); loadOwnerDashboard(); }
   if (page === 'companies') { $('page-companies').classList.remove('hidden'); loadCompanies(); }
   if (page === 'tickets') { $('page-tickets').classList.remove('hidden'); loadTickets(); }
@@ -547,6 +591,7 @@ function goToPage(page) {
   if (page === 'branding') { $('page-branding').classList.remove('hidden'); $('brandingPreview').src = `/api/branding/logo?t=${Date.now()}`; }
   if (page === 'changelog') { $('page-changelog').classList.remove('hidden'); loadChangelog(); }
   if (page === 'apikeys') { $('page-apikeys').classList.remove('hidden'); loadOwnerApiKeys(); }
+  if (page === 'email') { $('page-email').classList.remove('hidden'); loadEmailSettings(); }
 }
 
 const STATUS_LABEL = { active: 'פעיל', trial: 'פעיל', suspended: 'מושהה', cancelled: 'מבוטל' };
@@ -1312,6 +1357,91 @@ async function deleteVideo(id) {
     loadGuides();
   } catch (err) { toast('שגיאה: ' + err.message); }
 }
+
+/* ---- Email settings + broadcast ---- */
+async function loadEmailSettings() {
+  try {
+    const s = await api('/owner/email/settings');
+    $('smtpHost').value = s.host || '';
+    $('smtpPort').value = s.port || '';
+    $('smtpUsername').value = s.username || '';
+    $('smtpPassword').value = '';
+    $('smtpFromName').value = s.from_name || '';
+    $('smtpFromEmail').value = s.from_email || '';
+    $('smtpSecure').checked = !!s.secure;
+    $('smtpStatusHint').textContent = s.password_set
+      ? `מוגדר ופעיל${s.updated_at ? ' — עודכן לאחרונה ' + new Date(s.updated_at).toLocaleString('he-IL') : ''}`
+      : 'עדיין לא הוגדר שרת SMTP — מיילים לא נשלחים בפועל, רק נרשמים ל-log בשרת.';
+    $('broadcastAdminCount').textContent = `יישלח ל-${s.admin_count} אדמינים פעילים, בכל החברות שבמערכת`;
+  } catch (err) {
+    toast('שגיאה בטעינת הגדרות מייל: ' + err.message);
+  }
+}
+
+$('saveSmtpBtn').addEventListener('click', async () => {
+  $('smtpError').classList.add('hidden');
+  try {
+    await api('/owner/email/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        host: $('smtpHost').value.trim() || null,
+        port: $('smtpPort').value ? Number($('smtpPort').value) : null,
+        secure: $('smtpSecure').checked,
+        username: $('smtpUsername').value.trim() || null,
+        password: $('smtpPassword').value || undefined,
+        from_name: $('smtpFromName').value.trim() || null,
+        from_email: $('smtpFromEmail').value.trim() || null,
+      }),
+    });
+    toast('הגדרות המייל נשמרו');
+    loadEmailSettings();
+  } catch (err) {
+    $('smtpError').textContent = err.message;
+    $('smtpError').classList.remove('hidden');
+  }
+});
+
+$('sendTestEmailBtn').addEventListener('click', async () => {
+  const to = $('testEmailTo').value.trim();
+  const resultEl = $('testEmailResult');
+  if (!to) { resultEl.textContent = 'יש להזין כתובת אימייל'; return; }
+  const btn = $('sendTestEmailBtn');
+  btn.disabled = true;
+  resultEl.textContent = 'שולח...';
+  try {
+    await api('/owner/email/test-email', { method: 'POST', body: JSON.stringify({ to }) });
+    resultEl.textContent = '✅ נשלח בהצלחה — בדוק את תיבת הדואר.';
+  } catch (err) {
+    resultEl.textContent = '❌ שגיאה: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('sendBroadcastBtn').addEventListener('click', async () => {
+  $('broadcastError').classList.add('hidden');
+  const subject = $('broadcastSubject').value.trim();
+  const body = $('broadcastBody').value.trim();
+  if (!subject || !body) {
+    $('broadcastError').textContent = 'יש למלא נושא ותוכן';
+    $('broadcastError').classList.remove('hidden');
+    return;
+  }
+  if (!confirm('לשלוח את המייל הזה לכל האדמינים בכל החברות שבמערכת? הפעולה לא ניתנת לביטול.')) return;
+  const btn = $('sendBroadcastBtn');
+  btn.disabled = true;
+  try {
+    const res = await api('/owner/email/broadcast', { method: 'POST', body: JSON.stringify({ subject, body }) });
+    toast(`נשלח בהצלחה ל-${res.sent_count} אדמינים`);
+    $('broadcastSubject').value = '';
+    $('broadcastBody').value = '';
+  } catch (err) {
+    $('broadcastError').textContent = err.message;
+    $('broadcastError').classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 /* ---- Branding ---- */
 $('uploadBrandingBtn').addEventListener('click', async () => {
