@@ -70,26 +70,61 @@ const PROJECT_LIST_FIELDS = `
  * /api/projects:
  *   get:
  *     tags: [Projects]
- *     summary: List clients (projects) for the caller's company
+ *     summary: List/search clients (projects) for the caller's company
+ *     description: >
+ *       All filters are optional and combine with AND. name/email/phone are
+ *       case-insensitive partial matches; id and serial_number are exact.
  *     security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
  *     parameters:
  *       - in: query
  *         name: include_archived
  *         schema: { type: boolean }
+ *       - in: query
+ *         name: id
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: serial_number
+ *         schema: { type: integer }
+ *         description: The per-company sequential number shown on the client card as "מספר סידורי"
+ *       - in: query
+ *         name: name
+ *         schema: { type: string }
+ *       - in: query
+ *         name: email
+ *         schema: { type: string }
+ *       - in: query
+ *         name: phone
+ *         schema: { type: string }
  *     responses:
- *       200: { description: List of clients, each with linked_employee_ids }
+ *       200: { description: List of matching clients, each with linked_employee_ids }
  */
 router.get('/', requireScope('read'), async (req, res) => {
   const includeArchived = req.query.include_archived === 'true';
-  const { rows } = await pool.query(
+  const conditions = ['p.company_id = $1'];
+  const params = [companyIdOf(req)];
+  if (!includeArchived) conditions.push('p.archived = FALSE');
+  if (req.query.id) { params.push(req.query.id); conditions.push(`p.id = $${params.length}`); }
+  if (req.query.name) { params.push(`%${req.query.name}%`); conditions.push(`p.name ILIKE $${params.length}`); }
+  if (req.query.email) { params.push(`%${req.query.email}%`); conditions.push(`p.contact_email ILIKE $${params.length}`); }
+  if (req.query.phone) { params.push(`%${req.query.phone}%`); conditions.push(`p.contact_phone ILIKE $${params.length}`); }
+
+  const { rows: allRows } = await pool.query(
     `SELECT ${PROJECT_LIST_FIELDS}
      FROM projects p
      LEFT JOIN employees cb ON cb.id = p.created_by
      LEFT JOIN employees ub ON ub.id = p.updated_by
-     WHERE p.company_id = $1 ${includeArchived ? '' : 'AND p.archived = FALSE'}
+     WHERE ${conditions.join(' AND ')}
      ORDER BY p.created_at DESC`,
-    [companyIdOf(req)]
+    params
   );
+  // serial_number is a window-function alias computed in the SELECT above (per-company
+  // row position), not a real column -- can't reference it in the same-level WHERE, so
+  // filter it in JS instead of wrapping the whole query in a CTE for one rarely-used field.
+  // ROW_NUMBER() is a Postgres bigint, which pg parses as a string -- compare through
+  // Number() on both sides so that never silently fails to match.
+  const rows = req.query.serial_number
+    ? allRows.filter((r) => Number(r.serial_number) === Number(req.query.serial_number))
+    : allRows;
   res.json(rows);
 });
 
