@@ -112,7 +112,15 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ error: 'validation_error', details: errors.array() });
 
     try {
-      const rows = await runSearch(pool, req.params.entity, req.auth.companyId, req.body.conditions, req.body.limit);
+      // Callers that only offer a fixed number of condition "slots" (e.g. Make.com --
+      // its RPC-dependent dropdowns don't work reliably inside an array/collection
+      // parameter, so the search module there uses fixed top-level slots instead of an
+      // open-ended list) send every slot every time, empty ones included. Drop any
+      // condition with no field set rather than rejecting the whole request over it --
+      // the remaining conditions still fold together correctly left-to-right regardless
+      // of which slots were actually used.
+      const conditions = (req.body.conditions || []).filter((c) => c && c.field);
+      const rows = await runSearch(pool, req.params.entity, req.auth.companyId, conditions, req.body.limit);
       res.json(rows);
     } catch (err) {
       if (/^unknown_(field|operator|entity):/.test(err.message)) {
