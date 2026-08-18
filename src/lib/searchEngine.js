@@ -110,6 +110,25 @@ function listFields(entityKey) {
   }));
 }
 
+// Union of every field across every entity, deduplicated by key (first entity that
+// defines a key wins its label/type/operators). Exists so a caller can offer one flat,
+// parameter-free field picker instead of one that depends on which entity was chosen --
+// some integration builders (e.g. Make.com's custom-app RPCs invoked from inside a
+// nested array parameter) can't reliably thread an already-picked sibling parameter's
+// value into a dependent RPC call. Safe to over-offer here: buildWhereClause() still
+// rejects any field that isn't actually valid for the entity actually queried.
+function listAllFields() {
+  const seen = new Map();
+  for (const entity of Object.values(ENTITIES)) {
+    for (const [key, f] of Object.entries(entity.fields)) {
+      if (!seen.has(key)) {
+        seen.set(key, { key, label: f.label, type: f.type, operators: Object.keys(OPERATORS_BY_TYPE[f.type]) });
+      }
+    }
+  }
+  return [...seen.values()];
+}
+
 // Builds a parameterized WHERE fragment (without "WHERE", company_id excluded --
 // callers always AND that in separately as the very first, hardcoded condition) from a
 // flat list of {field, operator, value, connector} conditions, evaluated strictly
@@ -153,4 +172,4 @@ async function runSearch(pool, entityKey, companyId, conditions, limit) {
   return rows;
 }
 
-module.exports = { ENTITIES, OPERATORS_BY_TYPE, listEntities, listFields, buildWhereClause, runSearch };
+module.exports = { ENTITIES, OPERATORS_BY_TYPE, listEntities, listFields, listAllFields, buildWhereClause, runSearch };
