@@ -27,6 +27,7 @@ src/
   db/migrations/          002–031, רצות לפי סדר המספור (020+ רצות אוטומטית ב-deploy, ראו "Deploy מ-Git")
   db/schema.sql            דאמפ סכמה מלא (לא מתעדכן אוטומטית — לא הוזן מחדש מאז ה-import הראשוני, אל תסמכו עליו כמצב עדכני)
   middleware/auth.js       authenticate, requireRole, requireScope, requireOwner
+  lib/searchEngine.js     allowlist-based generic search מעל 6 טבלאות — ראו "חיפוש כללי" למטה
   lib/notify.js            fan-out התראות **פנימיות באפליקציה בלבד** (notifyOwners/notifyAdmins/notifyEmployee) — לא מייל
   lib/mailer.js            שליחת מייל בפועל (Google OAuth2 או SMTP דרך nodemailer, יומן שליחה) — ראו "אינטגרציית מייל" למטה
   lib/googleOAuth.js       עטיפת REST גולמית סביב OAuth2 של Google (ללא תלות npm חדשה) — ראו "אינטגרציית מייל" למטה
@@ -127,6 +128,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 | `ownerApiKeys.js` | מפתחות API ברמת owner, מוגבלים ל-scope ספציפי (ראו "גישת API לאוטומציה" למטה) |
 | `ownerEmail.js` | חיבור Google OAuth + הגדרות SMTP + יומן שליחה + broadcast עם בחירת נמענים (ראו "אינטגרציית מייל" למעלה) |
 | `dashboardWidgets.js` | דשבורד מותאם אישית לאדמין — KPI + widgets מסוג רשימה (ראו "דשבורד מותאם אישית" למטה) |
+| `search.js` | חיפוש כללי לפי שדה/אופרטור/ערך על פני 6 טבלאות, לאינטגרציות חיצוניות (Make) — ראו "חיפוש כללי" למטה |
 
 ### דשבורד מותאם אישית לאדמין (17.8.2026)
 
@@ -174,6 +176,19 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
   - **סדר עדיפות שולח (`mailer.js`'s `resolveSender()`):** אם יש שורה ב-`google_email_accounts` עם `is_default=TRUE` — היא תמיד מנצחת; אחרת נופל ל-`smtp_settings`/env הקיימים. `PATCH /accounts/:id/default` הוא טרנזקציה (`BEGIN; UPDATE...FALSE; UPDATE...TRUE WHERE id=$1; COMMIT/ROLLBACK`) + unique index חלקי על `is_default=TRUE` כהגנה כפולה נגד שני חשבונות default בו-זמנית. `DELETE /accounts/:id` הוא מחיקה קשיחה (אין `active` flag — שום קוד לא היה משתמש בו) + ניסיון best-effort לבטל את ההרשאה מול Google (`revokeToken`, אף פעם לא חוסם/נכשל את המחיקה).
 - **יומן שליחת מיילים (18.8.2026, לא היה קיים).** `email_send_log` (migration 031) — שורה לכל ניסיון שליחה, נכתבת מנקודת מחנק **אחת**: `sendMail()`/`sendTestEmail()` ב-`mailer.js` (fire-and-forget, `.catch(()=>{})`, אף פעם לא חוסמת/מפילה את השליחה עצמה). כך **כל** קטגוריית מייל מכוסה בלי קוד logging כפול בכל route: `welcome`, `password_reset`, `password_changed`, `email_changed`, `notification`/`support_reply`/`edit_request` (התראות מוגדרות), `broadcast`, `test`. סטטוס `sent`/`failed`/`skipped` (skipped = אין לא Google default ולא SMTP host מוגדר בכלל). `GET /api/owner/email/log` (מסונן `limit`/`offset`, ברירת מחדל 50, מקס' 200) מזין טבלה ב-✉️ מייל עם "טען עוד". אין UI/endpoint למחיקת רשומות יומן — כמו `system_changelog`, זה תיעוד לא-הפיך בכוונה.
 - **מה עוד לא הוגדר / נשאר לעשות:** **אין עדיין ספק SMTP אמיתי ואין עדיין Google OAuth client מוגדרים.** SMTP: המשתמש בחר ספק בראש אבל עוד לא סיפק host/port/username/password — עד אז אין ערך ב-DB או ב-`.env` והמערכת רק רושמת ל-log במקום לשלוח בפועל. Google: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` עדיין לא ב-`.env` בשרת, אז "התחבר עם Google" יחזיר שגיאה ברורה במקום להתחיל את הflow (ראו "TODO פתוח"). כשיהיו פרטי SMTP: להזין אותם ישירות דרך פאנל ה-owner (✉️ מייל) — לא צריך יותר SSH ל-`.env` לשם כך, אבל האופציה עדיין קיימת כברירת מחדל/fallback. גם צריך רשומות DNS (SPF/DKIM) בדומיין כדי שלא ייפול לספאם (רלוונטי בעיקר למסלול ה-SMTP הידני — שליחה דרך Gmail/Workspace לא סובלת מזה באותה מידה כי Google עצמה עומדת מאחורי המשלוח).
+
+### חיפוש כללי (Search) — לאינטגרציות חיצוניות כמו Make (18.8.2026)
+
+נבנה במקור בשביל אפליקציית Make מותאמת אישית (custom app) שהמשתמש בונה ב-Make.com מול ה-API של TreeTime — Make דורש מודול "Search" עם תפריט "איזה אזור" + בונה תנאים דינמי (שדה/אופרטור/ערך, עם AND/OR), בדיוק כמו שכבר קיים באפליקציות Make בוגרות אחרות (Origami, לדוגמה). **עקרון בטיחות זהה למנוע ה-KPI** (`kpiEngine.js`): allowlist קשיח של טבלאות/שדות/אופרטורים ב-`src/lib/searchEngine.js`, שום מחרוזת גולמית מה-request לא הופכת ל-SQL — רק ל-`$N` params. `company_id` תמיד מוזרק קשיח מ-`req.auth.companyId` בקוד, **אף פעם לא** דרך רשימת התנאים שהלקוח שולח (ולכן `company_id` גם לא ברשימת השדות המותרים לאף entity — ניסיון לסנן לפיו נדחה כ-`unknown_field`, לא "עובד בטעות").
+
+- **6 "אזורים" (entities) נתמכים היום:** `clients` (טבלת `projects`), `employees`, `time_entries`, `tasks`, `edit_requests`, `tickets` (טבלת `support_tickets`). **בכוונה לא** כולל דשבורד/הגדרות/הדרכות/webhooks/api_keys/שדות מותאמים — אלה מסכי ניהול/קונפיגורציה, לא "רשומות" שמחפשים לפיהן. הוספת אזור עתידי = תוספת קטנה ל-`ENTITIES` ב-`searchEngine.js`, לא שינוי ארכיטקטורה — לא נבנה מראש בשביל אזורים שעוד לא קיימים.
+- **3 endpoints, כולם `requireScope('read')`:**
+  - `GET /api/search/entities` — רשימת האזורים (מזין את תפריט "איזה אזור" ב-Make).
+  - `GET /api/search/entities/:entity/fields` — השדות המותרים לאזור ספציפי + האופרטורים המותרים לכל שדה לפי סוגו (`text`/`number`/`date`/`boolean`). זה מה שמזין את הרשימה הדינמית של שדות ב-Make (Remote Procedure שמשתנה לפי איזה entity נבחר).
+  - `POST /api/search/:entity/query` — `{conditions: [{field, operator, value, connector}], limit}`, מחזיר את הרשומות התואמות (מסונן ל-company, ממויין וmoved-limited לפי הגדרת ה-entity).
+- **הערכת AND/OR — משמאל לימין, לא לפי סדר פעולות רגיל של SQL.** כל תנאי חדש עוטף ב-סוגריים את כל מה שהיה לפניו (`(((cond1) AND cond2) OR cond3)`), כדי להתאים לאינטואיציה של בונה-תנאים ויזואלי ("הוסף AND"/"הוסף OR" ברשימה שטוחה), לא ל-precedence שבו AND גובר על OR כברירת מחדל ב-SQL. **אין קינון קבוצות** (אין "(A OR B) AND (C OR D)") — רק רשימה שטוחה אחת, בכוונה, כדי לא לסבך את זה מעבר למה שהתבקש.
+- **`limit`:** מאומת ע"י express-validator ל-1–200, **נדחה עם 400 אם מחוץ לטווח** — לא "מתוקן" בשקט לגבול הקרוב (עקבי עם `GET /api/owner/email/log`).
+- **הרשאות:** `requireScope('read')` — עובד רגיל מחובר (לא רק אדמין) עובר תמיד; מפתח API צריך `read` או `admin` scope. אין הגבלת role נוספת — זו יכולת קריאה כללית, לא פעולת ניהול.
 
 ### תצוגת תפריט: סרגל צד / סרגל עליון (18.8.2026)
 
