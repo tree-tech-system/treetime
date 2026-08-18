@@ -15,7 +15,7 @@ async function sendWelcomeEmail(employee, companyName) {
     לחצו לאישור כתובת האימייל שלכם:
     ${buttonHtml(confirmUrl, 'אישור החשבון')}
     <span style="color:#6B7568;font-size:12.5px;">הקישור בתוקף ל-48 שעות.</span>`;
-  await sendMail({ to: employee.email, subject: 'ברוכים הבאים ל-TreeTime — אישור חשבון', html: renderEmail('ברוכים הבאים ל-TreeTime', body) });
+  await sendMail({ to: employee.email, subject: 'ברוכים הבאים ל-TreeTime — אישור חשבון', html: renderEmail('ברוכים הבאים ל-TreeTime', body), category: 'welcome' });
 }
 
 async function sendPasswordResetEmail(employee) {
@@ -24,20 +24,20 @@ async function sendPasswordResetEmail(employee) {
   const body = `קיבלנו בקשה לאיפוס הסיסמה של החשבון המשויך לכתובת ${employee.email}.<br><br>
     ${buttonHtml(resetUrl, 'איפוס סיסמה')}
     <span style="color:#6B7568;font-size:12.5px;">הקישור בתוקף לשעה. אם לא ביקשתם איפוס סיסמה, אפשר להתעלם מהמייל הזה.</span>`;
-  await sendMail({ to: employee.email, subject: 'איפוס סיסמה ב-TreeTime', html: renderEmail('איפוס סיסמה', body) });
+  await sendMail({ to: employee.email, subject: 'איפוס סיסמה ב-TreeTime', html: renderEmail('איפוס סיסמה', body), category: 'password_reset' });
 }
 
 async function sendPasswordChangedEmail(employee) {
   const body = `הסיסמה של החשבון שלך (${employee.email}) עודכנה כרגע.<br><br>
     <span style="color:#6B7568;font-size:12.5px;">אם לא ביצעת את השינוי הזה, צרו איתנו קשר מיד.</span>`;
-  await sendMail({ to: employee.email, subject: 'הסיסמה שלך ב-TreeTime עודכנה', html: renderEmail('הסיסמה עודכנה', body) });
+  await sendMail({ to: employee.email, subject: 'הסיסמה שלך ב-TreeTime עודכנה', html: renderEmail('הסיסמה עודכנה', body), category: 'password_changed' });
 }
 
 // Sent to the OLD address so a real account owner notices if this wasn't them.
 async function sendEmailChangedEmail(oldEmail, newEmail) {
   const body = `כתובת האימייל להתחברות של החשבון שלך ב-TreeTime שונתה מ-<b>${oldEmail}</b> ל-<b>${newEmail}</b>.<br><br>
     <span style="color:#6B7568;font-size:12.5px;">אם לא ביצעת את השינוי הזה, צרו איתנו קשר מיד.</span>`;
-  await sendMail({ to: oldEmail, subject: 'כתובת האימייל שלך ב-TreeTime שונתה', html: renderEmail('כתובת האימייל שונתה', body) });
+  await sendMail({ to: oldEmail, subject: 'כתובת האימייל שלך ב-TreeTime שונתה', html: renderEmail('כתובת האימייל שונתה', body), category: 'email_changed' });
 }
 
 module.exports = { sendWelcomeEmail, sendPasswordResetEmail, sendPasswordChangedEmail, sendEmailChangedEmail };

@@ -152,10 +152,10 @@ router.post('/:id/messages', body('body').isString().trim().notEmpty(), async (r
     notifyEmployee(ticket.employee_id, 'ticket_owner_reply', subject, req.body.body, 'support');
   }
   if (s.support_reply_email_admin) {
-    sendAdminEmails(ticket.company_id, subject, req.body.body).catch(() => {});
+    sendAdminEmails(ticket.company_id, subject, req.body.body, 'support_reply').catch(() => {});
   }
   if (s.support_reply_email_employee && ticket.employee_id) {
-    sendEmployeeEmailById(ticket.employee_id, subject, req.body.body).catch(() => {});
+    sendEmployeeEmailById(ticket.employee_id, subject, req.body.body, 'support_reply').catch(() => {});
   }
 
   res.status(201).json(rows[0]);

@@ -177,6 +177,11 @@
   .guide-video-row .info{ flex:1; min-width:0; }
   .guide-video-row .t{ font-weight:700; font-size:13.5px; }
   .guide-video-row .d{ font-size:12px; color:var(--muted); margin-top:2px; }
+  .account-row{ display:flex; gap:12px; align-items:center; justify-content:space-between; padding:10px; border-bottom:1px solid var(--border); }
+  .account-row:last-child{ border-bottom:none; }
+  .account-row .t{ font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:8px; }
+  .account-row .d{ font-size:12px; color:var(--muted); margin-top:2px; }
+  .recipient-group label{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:400; padding:5px 2px; margin:0; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -423,10 +428,19 @@
     <!-- Email settings + broadcast page -->
     <div id="page-email" class="hidden">
       <div class="page-head"><h2>מייל</h2></div>
-      <div class="hint" style="margin-bottom:16px;">הגדרת שרת ה-SMTP ששולח את כל המיילים האוטומטיים של המערכת (איפוס סיסמה, ברוכים הבאים, התראות...), ושליחת מייל ידני לכל האדמינים בפלטפורמה.</div>
+      <div class="hint" style="margin-bottom:16px;">חיבור השולח שממנו יוצאים כל המיילים האוטומטיים של המערכת (איפוס סיסמה, ברוכים הבאים, התראות...), יומן של כל מייל שנשלח, ושליחת מייל ידני לנמענים שתבחר.</div>
 
       <div class="card" style="margin-bottom:20px;">
-        <h3 style="margin-bottom:14px;">הגדרות SMTP</h3>
+        <h3 style="margin-bottom:6px;">חשבונות Google מחוברים</h3>
+        <div class="hint" style="margin-bottom:14px;">התחברות עם Google נותנת הרשאה לשלוח מיילים דרך תיבת דואר אמיתית (Gmail / Google Workspace), בלי סיסמת SMTP ידנית. אפשר לחבר כמה חשבונות ולבחור מי מהם ישמש בפועל כברירת מחדל לשליחה.</div>
+        <button class="btn-outline btn-sm" style="width:auto;" id="connectGoogleBtn">🔗 התחבר עם Google</button>
+        <div id="googleAccountsWrap" style="margin-top:14px;"></div>
+        <div class="error hidden" id="googleAccountsError" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin-bottom:4px;">הגדרות SMTP (גיבוי ידני)</h3>
+        <div class="hint" style="margin-bottom:12px;">משמש רק כשאין חשבון Google מחובר שמוגדר כברירת מחדל.</div>
         <div class="field-row">
           <div><label>שרת (Host)</label><input id="smtpHost" placeholder="smtp.example.com"></div>
           <div><label>פורט</label><input id="smtpPort" type="number" placeholder="587"></div>
@@ -445,7 +459,7 @@
 
       <div class="card" style="margin-bottom:20px;">
         <h3 style="margin-bottom:14px;">שליחת מייל בדיקה</h3>
-        <div class="hint" style="margin-bottom:10px;">שולח מייל בדיקה עם ההגדרות השמורות כרגע, כדי לוודא שהחיבור באמת עובד.</div>
+        <div class="hint" style="margin-bottom:10px;">שולח מייל בדיקה דרך השולח הפעיל כרגע (חשבון Google אם מוגדר, אחרת ה-SMTP הידני), כדי לוודא שהחיבור באמת עובד.</div>
         <div style="display:flex; gap:8px;">
           <input id="testEmailTo" type="email" placeholder="כתובת לבדיקה" style="flex:1;">
           <button class="btn-outline btn-sm" style="white-space:nowrap;" id="sendTestEmailBtn">שלח מייל בדיקה</button>
@@ -453,12 +467,40 @@
         <div class="hint" id="testEmailResult" style="margin-top:10px;"></div>
       </div>
 
+      <div class="card" style="margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h3>יומן מיילים שנשלחו</h3>
+          <span style="font-size:12px;color:var(--muted);" id="emailLogCount"></span>
+        </div>
+        <div style="max-height:340px;overflow:auto;">
+          <table>
+            <thead><tr><th>זמן</th><th>אל</th><th>נושא</th><th>סוג</th><th>שולח</th><th>סטטוס</th></tr></thead>
+            <tbody id="emailLogTable"></tbody>
+          </table>
+        </div>
+        <button class="btn-outline btn-sm hidden" style="width:auto; margin-top:12px;" id="loadMoreLogBtn">טען עוד</button>
+      </div>
+
       <div class="card">
-        <h3 style="margin-bottom:14px;">שליחת מייל לכל האדמינים</h3>
-        <div class="hint" id="broadcastAdminCount" style="margin-bottom:12px;"></div>
+        <h3 style="margin-bottom:14px;">שליחת מייל</h3>
+        <label>נמענים</label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; font-weight:400; cursor:pointer; margin:6px 0;">
+          <input type="radio" name="broadcastTarget" value="admins" checked> כל האדמינים
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; font-weight:400; cursor:pointer; margin:6px 0;">
+          <input type="radio" name="broadcastTarget" value="all"> כל המשתמשים (אדמינים + עובדים)
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; font-weight:400; cursor:pointer; margin:6px 0;">
+          <input type="radio" name="broadcastTarget" value="manual"> בחירה ידנית
+        </label>
+        <div id="manualRecipientsRow" class="hidden" style="margin:6px 0 4px; display:flex; align-items:center; gap:10px;">
+          <button class="btn-outline btn-sm" style="width:auto;" id="pickRecipientsBtn">בחר נמענים</button>
+          <span class="hint" id="manualRecipientsCount"></span>
+        </div>
+        <div class="hint" id="broadcastAdminCount" style="margin:10px 0 12px;"></div>
         <label>נושא</label><input id="broadcastSubject" placeholder="לדוגמה: עדכון חדש במערכת">
         <label>תוכן ההודעה</label><textarea id="broadcastBody" rows="6" placeholder="כתוב כאן את תוכן ההודעה..."></textarea>
-        <button class="btn-primary btn-sm" style="width:auto; margin-top:12px;" id="sendBroadcastBtn">שלח לכל האדמינים</button>
+        <button class="btn-primary btn-sm" style="width:auto; margin-top:12px;" id="sendBroadcastBtn">שלח מייל</button>
         <div class="error hidden" id="broadcastError" style="margin-top:10px;"></div>
       </div>
     </div>
@@ -510,7 +552,19 @@ async function boot() {
     const me = await api('/auth/me');
     $('ownerWho').textContent = me.full_name;
     showApp(true);
-    goToPage('dashboard');
+
+    // Google's OAuth redirect (routes/ownerEmail.js google/callback) lands back
+    // here as a plain full-page navigation with a status query param -- surface
+    // it once, then strip it so a refresh doesn't re-show the same toast.
+    const params = new URLSearchParams(location.search);
+    if (params.has('email_connected') || params.has('email_error')) {
+      goToPage('email');
+      if (params.has('email_connected')) toast(`חשבון Google חובר בהצלחה: ${params.get('email_connected')}`);
+      else toast('שגיאה בחיבור Google: ' + params.get('email_error'));
+      history.replaceState({}, '', location.pathname);
+    } else {
+      goToPage('dashboard');
+    }
     loadOwnerNotifications();
   } catch (err) {
     token = null;
@@ -1359,9 +1413,28 @@ async function deleteVideo(id) {
 }
 
 /* ---- Email settings + broadcast ---- */
+let emailRecipients = [];
+let selectedRecipientIds = new Set();
+let emailLogOffset = 0;
+const EMAIL_LOG_PAGE_SIZE = 50;
+const EMAIL_CATEGORY_LABELS = {
+  welcome: 'ברוכים הבאים', password_reset: 'איפוס סיסמה', password_changed: 'סיסמה שונתה',
+  email_changed: 'אימייל שונה', notification: 'התראה', support_reply: 'מענה תמיכה',
+  edit_request: 'בקשת עריכה', broadcast: 'הודעה כללית', test: 'בדיקה', other: 'אחר',
+};
+const EMAIL_STATUS_BADGE = { sent: 'active', failed: 'suspended', skipped: 'trial' };
+const EMAIL_STATUS_LABEL = { sent: 'נשלח', failed: 'נכשל', skipped: 'דולג' };
+
 async function loadEmailSettings() {
   try {
-    const s = await api('/owner/email/settings');
+    const [s, accounts, recipients] = await Promise.all([
+      api('/owner/email/settings'),
+      api('/owner/email/accounts'),
+      api('/owner/email/recipients'),
+    ]);
+    emailRecipients = recipients;
+    renderGoogleAccounts(accounts);
+
     $('smtpHost').value = s.host || '';
     $('smtpPort').value = s.port || '';
     $('smtpUsername').value = s.username || '';
@@ -1369,14 +1442,163 @@ async function loadEmailSettings() {
     $('smtpFromName').value = s.from_name || '';
     $('smtpFromEmail').value = s.from_email || '';
     $('smtpSecure').checked = !!s.secure;
-    $('smtpStatusHint').textContent = s.password_set
-      ? `מוגדר ופעיל${s.updated_at ? ' — עודכן לאחרונה ' + new Date(s.updated_at).toLocaleString('he-IL') : ''}`
-      : 'עדיין לא הוגדר שרת SMTP — מיילים לא נשלחים בפועל, רק נרשמים ל-log בשרת.';
-    $('broadcastAdminCount').textContent = `יישלח ל-${s.admin_count} אדמינים פעילים, בכל החברות שבמערכת`;
+
+    const activeGoogle = accounts.find((a) => a.is_default);
+    $('smtpStatusHint').textContent = activeGoogle
+      ? `לא בשימוש כרגע — השולח הפעיל הוא חשבון ה-Google ${activeGoogle.email}`
+      : s.password_set
+        ? `מוגדר ופעיל${s.updated_at ? ' — עודכן לאחרונה ' + new Date(s.updated_at).toLocaleString('he-IL') : ''}`
+        : 'עדיין לא הוגדר שרת SMTP ואין חשבון Google מחובר — מיילים לא נשלחים בפועל, רק נרשמים ל-log בשרת.';
+
+    updateRecipientSummary();
+    loadEmailLog();
   } catch (err) {
     toast('שגיאה בטעינת הגדרות מייל: ' + err.message);
   }
 }
+
+function renderGoogleAccounts(accounts) {
+  const wrap = $('googleAccountsWrap');
+  if (!accounts.length) {
+    wrap.innerHTML = '<div class="empty-state" style="padding:16px 0;">עדיין אין חשבון Google מחובר</div>';
+    return;
+  }
+  wrap.innerHTML = accounts.map((a) => `
+    <div class="account-row">
+      <div class="info">
+        <div class="t">${a.email} ${a.is_default ? '<span class="badge active">ברירת מחדל</span>' : ''}</div>
+        <div class="d">${a.display_name ? a.display_name + ' · ' : ''}חובר ב-${new Date(a.connected_at).toLocaleDateString('he-IL')}</div>
+      </div>
+      <div style="display:flex; gap:6px; flex-shrink:0;">
+        ${a.is_default ? '' : `<button class="btn-outline btn-sm" onclick="setDefaultGoogleAccount(${a.id})">הפוך לברירת מחדל</button>`}
+        <button class="btn-danger-outline btn-sm" onclick="disconnectGoogleAccount(${a.id})">נתק</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+$('connectGoogleBtn').addEventListener('click', async () => {
+  $('googleAccountsError').classList.add('hidden');
+  try {
+    const res = await api('/owner/email/google/start', { method: 'POST' });
+    window.location.href = res.url;
+  } catch (err) {
+    $('googleAccountsError').textContent = err.message;
+    $('googleAccountsError').classList.remove('hidden');
+  }
+});
+
+async function setDefaultGoogleAccount(id) {
+  try {
+    await api(`/owner/email/accounts/${id}/default`, { method: 'PATCH' });
+    toast('חשבון ברירת המחדל עודכן');
+    loadEmailSettings();
+  } catch (err) { toast('שגיאה: ' + err.message); }
+}
+
+async function disconnectGoogleAccount(id) {
+  if (!confirm('לנתק את החשבון הזה? המערכת תפסיק לשלוח דרכו.')) return;
+  try {
+    await api(`/owner/email/accounts/${id}`, { method: 'DELETE' });
+    toast('החשבון נותק');
+    loadEmailSettings();
+  } catch (err) { toast('שגיאה: ' + err.message); }
+}
+
+async function loadEmailLog(reset = true) {
+  if (reset) emailLogOffset = 0;
+  try {
+    const res = await api(`/owner/email/log?limit=${EMAIL_LOG_PAGE_SIZE}&offset=${emailLogOffset}`);
+    const rowsHtml = res.items.map((l) => `
+      <tr>
+        <td class="mono" style="font-size:12px;">${new Date(l.sent_at).toLocaleString('he-IL')}</td>
+        <td>${l.to_email}</td>
+        <td>${l.subject || '—'}</td>
+        <td>${EMAIL_CATEGORY_LABELS[l.category] || l.category}</td>
+        <td class="mono" style="font-size:12px;">${l.sender || '—'}</td>
+        <td><span class="badge ${EMAIL_STATUS_BADGE[l.status] || 'trial'}" title="${(l.error || '').replace(/"/g, '&quot;')}">${EMAIL_STATUS_LABEL[l.status] || l.status}</span></td>
+      </tr>
+    `).join('');
+    $('emailLogTable').innerHTML = reset
+      ? (rowsHtml || '<tr><td colspan="6" style="text-align:center;color:var(--muted);">עדיין לא נשלחו מיילים</td></tr>')
+      : $('emailLogTable').innerHTML + rowsHtml;
+    emailLogOffset += res.items.length;
+    $('emailLogCount').textContent = `${Math.min(emailLogOffset, res.total)} מתוך ${res.total}`;
+    $('loadMoreLogBtn').classList.toggle('hidden', emailLogOffset >= res.total);
+  } catch (err) {
+    toast('שגיאה בטעינת יומן מיילים: ' + err.message);
+  }
+}
+$('loadMoreLogBtn').addEventListener('click', () => loadEmailLog(false));
+
+function currentBroadcastTarget() {
+  return document.querySelector('input[name="broadcastTarget"]:checked')?.value || 'admins';
+}
+
+function updateRecipientSummary() {
+  const target = currentBroadcastTarget();
+  $('manualRecipientsRow').classList.toggle('hidden', target !== 'manual');
+  if (target === 'admins') {
+    $('broadcastAdminCount').textContent = `יישלח ל-${emailRecipients.filter((r) => r.role === 'admin').length} אדמינים פעילים, בכל החברות שבמערכת`;
+  } else if (target === 'all') {
+    $('broadcastAdminCount').textContent = `יישלח ל-${emailRecipients.length} משתמשים פעילים (אדמינים + עובדים), בכל החברות שבמערכת`;
+  } else {
+    $('broadcastAdminCount').textContent = '';
+    $('manualRecipientsCount').textContent = selectedRecipientIds.size ? `${selectedRecipientIds.size} נבחרו` : 'לא נבחרו נמענים עדיין';
+  }
+}
+document.querySelectorAll('input[name="broadcastTarget"]').forEach((el) => el.addEventListener('change', updateRecipientSummary));
+
+function openRecipientPickerModal() {
+  const grouped = {};
+  emailRecipients.forEach((r) => { (grouped[r.company_name] ||= []).push(r); });
+  const listHtml = Object.keys(grouped).sort().map((company) => `
+    <div class="recipient-group">
+      <div style="margin-top:10px; font-weight:700; font-size:12.5px; color:var(--muted);">${company}</div>
+      ${grouped[company].map((r) => `
+        <label>
+          <input type="checkbox" class="recipientCheckbox" value="${r.id}" ${selectedRecipientIds.has(r.id) ? 'checked' : ''}>
+          <span>${r.full_name} <span class="hint">(${r.email}${r.role === 'admin' ? ' · אדמין' : ''})</span></span>
+        </label>
+      `).join('')}
+    </div>
+  `).join('');
+
+  renderModal(`
+    <h3>בחירת נמענים</h3>
+    <input id="recipientSearch" placeholder="חיפוש לפי שם, מייל או חברה...">
+    <div id="recipientListWrap" style="max-height:340px; overflow-y:auto; border:1px solid var(--border); border-radius:10px; padding:8px 10px; margin-top:8px;">
+      ${listHtml || '<div class="empty-state">אין עובדים פעילים במערכת</div>'}
+    </div>
+    <button class="btn-primary" id="confirmRecipientsBtn">אישור (<span id="recipientSelCount">${selectedRecipientIds.size}</span> נבחרו)</button>
+  `, true);
+
+  $('recipientListWrap').addEventListener('change', (e) => {
+    if (!e.target.classList.contains('recipientCheckbox')) return;
+    const id = Number(e.target.value);
+    if (e.target.checked) selectedRecipientIds.add(id); else selectedRecipientIds.delete(id);
+    $('recipientSelCount').textContent = selectedRecipientIds.size;
+  });
+
+  $('recipientSearch').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('.recipient-group').forEach((group) => {
+      let anyVisible = false;
+      group.querySelectorAll('label').forEach((label) => {
+        const match = label.textContent.toLowerCase().includes(q);
+        label.style.display = match ? '' : 'none';
+        if (match) anyVisible = true;
+      });
+      group.style.display = anyVisible ? '' : 'none';
+    });
+  });
+
+  $('confirmRecipientsBtn').addEventListener('click', () => {
+    closeModal();
+    updateRecipientSummary();
+  });
+}
+$('pickRecipientsBtn').addEventListener('click', openRecipientPickerModal);
 
 $('saveSmtpBtn').addEventListener('click', async () => {
   $('smtpError').classList.add('hidden');
@@ -1411,6 +1633,7 @@ $('sendTestEmailBtn').addEventListener('click', async () => {
   try {
     await api('/owner/email/test-email', { method: 'POST', body: JSON.stringify({ to }) });
     resultEl.textContent = '✅ נשלח בהצלחה — בדוק את תיבת הדואר.';
+    loadEmailLog();
   } catch (err) {
     resultEl.textContent = '❌ שגיאה: ' + err.message;
   } finally {
@@ -1422,19 +1645,33 @@ $('sendBroadcastBtn').addEventListener('click', async () => {
   $('broadcastError').classList.add('hidden');
   const subject = $('broadcastSubject').value.trim();
   const body = $('broadcastBody').value.trim();
+  const target = currentBroadcastTarget();
   if (!subject || !body) {
     $('broadcastError').textContent = 'יש למלא נושא ותוכן';
     $('broadcastError').classList.remove('hidden');
     return;
   }
-  if (!confirm('לשלוח את המייל הזה לכל האדמינים בכל החברות שבמערכת? הפעולה לא ניתנת לביטול.')) return;
+  if (target === 'manual' && !selectedRecipientIds.size) {
+    $('broadcastError').textContent = 'יש לבחור לפחות נמען אחד';
+    $('broadcastError').classList.remove('hidden');
+    return;
+  }
+  const targetLabel = {
+    admins: 'לכל האדמינים בכל החברות שבמערכת',
+    all: 'לכל המשתמשים (אדמינים + עובדים) בכל החברות שבמערכת',
+    manual: `ל-${selectedRecipientIds.size} נמענים שנבחרו`,
+  }[target];
+  if (!confirm(`לשלוח את המייל הזה ${targetLabel}? הפעולה לא ניתנת לביטול.`)) return;
   const btn = $('sendBroadcastBtn');
   btn.disabled = true;
   try {
-    const res = await api('/owner/email/broadcast', { method: 'POST', body: JSON.stringify({ subject, body }) });
-    toast(`נשלח בהצלחה ל-${res.sent_count} אדמינים`);
+    const payload = { subject, body, target };
+    if (target === 'manual') payload.employee_ids = [...selectedRecipientIds];
+    const res = await api('/owner/email/broadcast', { method: 'POST', body: JSON.stringify(payload) });
+    toast(`נשלח בהצלחה ל-${res.sent_count} נמענים`);
     $('broadcastSubject').value = '';
     $('broadcastBody').value = '';
+    loadEmailLog();
   } catch (err) {
     $('broadcastError').textContent = err.message;
     $('broadcastError').classList.remove('hidden');
