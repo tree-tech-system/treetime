@@ -33,9 +33,27 @@ async function rateFor(employeeId) {
   return Number(rows[0]?.hourly_rate) || 0;
 }
 
-function computeCost(startedAt, endedAt, rate) {
-  const hours = (new Date(endedAt) - new Date(startedAt)) / 3600000;
+function computeCost(startedAt, endedAt, rate, pausedSeconds = 0) {
+  const hours = Math.max(0, (new Date(endedAt) - new Date(startedAt)) / 1000 - (pausedSeconds || 0)) / 3600;
   return Math.round(hours * rate * 100) / 100;
+}
+
+// Picks the entry a pause/resume/stop action applies to among an employee's currently
+// matching timers (`filterSql` distinguishes "running", "paused", or "running or
+// paused"), disambiguating by an explicit entry_id when the employee has more than one.
+async function resolveTimerEntry(employeeId, requestedEntryId, filterSql) {
+  const { rows: candidates } = await pool.query(
+    `SELECT id FROM time_entries WHERE employee_id = $1 AND ${filterSql} ORDER BY started_at`,
+    [employeeId]
+  );
+  if (!candidates.length) return { notFound: true };
+  if (requestedEntryId) {
+    return candidates.some((r) => r.id === Number(requestedEntryId))
+      ? { id: Number(requestedEntryId) }
+      : { notFound: true };
+  }
+  if (candidates.length > 1) return { ambiguous: true };
+  return { id: candidates[0].id };
 }
 
 /**
@@ -108,31 +126,114 @@ router.post('/stop', requireScope('write'), async (req, res) => {
   const employeeId = await resolveEmployeeId(req);
   if (!employeeId) return res.status(400).json({ error: 'missing_employee_id' });
 
-  const running = await pool.query('SELECT id FROM time_entries WHERE employee_id = $1 AND ended_at IS NULL ORDER BY started_at', [employeeId]);
-  if (!running.rows.length) return res.status(404).json({ error: 'no_running_timer' });
+  const picked = await resolveTimerEntry(employeeId, req.body.entry_id, 'ended_at IS NULL');
+  if (picked.notFound) return res.status(404).json({ error: 'no_running_timer' });
+  if (picked.ambiguous) {
+    return res.status(400).json({ error: 'multiple_running_timers', message: 'Specify entry_id — more than one timer is running for this employee.' });
+  }
 
-  let entryId = req.body.entry_id;
-  if (entryId && !running.rows.some((r) => r.id === Number(entryId))) {
-    return res.status(404).json({ error: 'no_running_timer' });
-  }
-  if (!entryId) {
-    if (running.rows.length > 1) {
-      return res.status(400).json({ error: 'multiple_running_timers', message: 'Specify entry_id — more than one timer is running for this employee.' });
-    }
-    entryId = running.rows[0].id;
-  }
+  // Finalize any pause still in progress into paused_seconds before computing cost, so
+  // time spent paused is never counted as worked time.
+  const finalized = await pool.query(
+    `UPDATE time_entries SET
+       paused_seconds = paused_seconds + CASE WHEN paused_at IS NOT NULL THEN CEIL(EXTRACT(EPOCH FROM (now() - paused_at)))::INTEGER ELSE 0 END,
+       paused_at = NULL,
+       ended_at = now()
+     WHERE id = $1 AND ended_at IS NULL RETURNING *`,
+    [picked.id]
+  );
+  if (!finalized.rows[0]) return res.status(404).json({ error: 'no_running_timer' });
 
   const rate = await rateFor(employeeId);
+  const cost = computeCost(finalized.rows[0].started_at, finalized.rows[0].ended_at, rate, finalized.rows[0].paused_seconds);
   const { rows } = await pool.query(
-    `UPDATE time_entries SET
-       ended_at = now(),
-       rate_snapshot = $2,
-       cost = ROUND((EXTRACT(EPOCH FROM (now() - started_at)) / 3600.0) * $2, 2)
-     WHERE id = $1 AND ended_at IS NULL RETURNING *`,
-    [entryId, rate]
+    `UPDATE time_entries SET rate_snapshot = $2, cost = $3 WHERE id = $1 RETURNING *`,
+    [picked.id, rate, cost]
+  );
+  dispatchEvent('time_entry.stopped', rows[0]);
+  res.json(rows[0]);
+});
+
+/**
+ * @openapi
+ * /api/time-entries/pause:
+ *   post:
+ *     tags: [Time Entries]
+ *     summary: Pause a running timer without ending it
+ *     description: >
+ *       Freezes the timer in place -- it keeps existing but stops counting toward
+ *       worked time until resumed. Does not free up a concurrent-timer slot (see
+ *       /api/timer-settings); a paused timer still counts as "running" for that limit.
+ *     security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               employee_id: { type: integer, description: "Required when using an API key" }
+ *               entry_id: { type: integer, description: "Required if more than one timer is running" }
+ *     responses:
+ *       200: { description: Timer paused }
+ *       404: { description: No running (unpaused) timer found }
+ */
+router.post('/pause', requireScope('write'), async (req, res) => {
+  const employeeId = await resolveEmployeeId(req);
+  if (!employeeId) return res.status(400).json({ error: 'missing_employee_id' });
+
+  const picked = await resolveTimerEntry(employeeId, req.body.entry_id, 'ended_at IS NULL AND paused_at IS NULL');
+  if (picked.notFound) return res.status(404).json({ error: 'no_running_timer' });
+  if (picked.ambiguous) {
+    return res.status(400).json({ error: 'multiple_running_timers', message: 'Specify entry_id — more than one timer is running for this employee.' });
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE time_entries SET paused_at = now() WHERE id = $1 AND ended_at IS NULL AND paused_at IS NULL RETURNING *`,
+    [picked.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'no_running_timer' });
-  dispatchEvent('time_entry.stopped', rows[0]);
+  dispatchEvent('time_entry.paused', rows[0]);
+  res.json(rows[0]);
+});
+
+/**
+ * @openapi
+ * /api/time-entries/resume:
+ *   post:
+ *     tags: [Time Entries]
+ *     summary: Resume a paused timer
+ *     security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               employee_id: { type: integer, description: "Required when using an API key" }
+ *               entry_id: { type: integer, description: "Required if more than one timer is paused" }
+ *     responses:
+ *       200: { description: Timer resumed }
+ *       404: { description: No paused timer found }
+ */
+router.post('/resume', requireScope('write'), async (req, res) => {
+  const employeeId = await resolveEmployeeId(req);
+  if (!employeeId) return res.status(400).json({ error: 'missing_employee_id' });
+
+  const picked = await resolveTimerEntry(employeeId, req.body.entry_id, 'ended_at IS NULL AND paused_at IS NOT NULL');
+  if (picked.notFound) return res.status(404).json({ error: 'no_paused_timer' });
+  if (picked.ambiguous) {
+    return res.status(400).json({ error: 'multiple_paused_timers', message: 'Specify entry_id — more than one timer is paused for this employee.' });
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE time_entries SET
+       paused_seconds = paused_seconds + CEIL(EXTRACT(EPOCH FROM (now() - paused_at)))::INTEGER,
+       paused_at = NULL
+     WHERE id = $1 AND ended_at IS NULL AND paused_at IS NOT NULL RETURNING *`,
+    [picked.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'no_paused_timer' });
+  dispatchEvent('time_entry.resumed', rows[0]);
   res.json(rows[0]);
 });
 
@@ -255,7 +356,10 @@ router.patch('/:id', requireScope('write'), async (req, res) => {
   const newStart = started_at || current.rows[0].started_at;
   const newEnd = ended_at || current.rows[0].ended_at;
   const rate = Number(current.rows[0].rate_snapshot) || (await rateFor(current.rows[0].employee_id));
-  const cost = newEnd ? computeCost(newStart, newEnd, rate) : null;
+  // paused_seconds isn't editable here -- it's whatever /pause + /resume (or /stop,
+  // finalizing a pause still in progress) already recorded on the row, so a manual
+  // time correction still correctly excludes any paused time from the cost.
+  const cost = newEnd ? computeCost(newStart, newEnd, rate, current.rows[0].paused_seconds) : null;
 
   const { rows } = await pool.query(
     `UPDATE time_entries SET
