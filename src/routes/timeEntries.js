@@ -57,17 +57,18 @@ function computeCost(startedAt, endedAt, rate) {
  *               source: { type: string, example: mobile }
  *     responses:
  *       201: { description: Timer started }
- *       409: { description: Employee already has 3 timers running concurrently }
+ *       409: { description: Employee already has as many timers running as the company's configured limit (see /api/timer-settings) }
  */
-const MAX_CONCURRENT_TIMERS = 3;
-
 router.post('/start', requireScope('write'), async (req, res) => {
   const employeeId = await resolveEmployeeId(req);
   if (!employeeId) return res.status(400).json({ error: 'missing_employee_id' });
 
+  const settingsRes = await pool.query('SELECT max_concurrent_timers FROM company_timer_settings WHERE company_id = $1', [companyIdOf(req)]);
+  const maxConcurrent = settingsRes.rows[0]?.max_concurrent_timers || 3;
+
   const running = await pool.query('SELECT id FROM time_entries WHERE employee_id = $1 AND ended_at IS NULL', [employeeId]);
-  if (running.rows.length >= MAX_CONCURRENT_TIMERS) {
-    return res.status(409).json({ error: 'too_many_running_timers', message: `Max ${MAX_CONCURRENT_TIMERS} concurrent timers per employee.` });
+  if (running.rows.length >= maxConcurrent) {
+    return res.status(409).json({ error: 'too_many_running_timers', message: `Max ${maxConcurrent} concurrent timers per employee.` });
   }
 
   let { project_id, task_id, description, source } = req.body;
@@ -140,7 +141,7 @@ router.post('/stop', requireScope('write'), async (req, res) => {
  * /api/time-entries/current:
  *   get:
  *     tags: [Time Entries]
- *     summary: Get the employee's currently running timers (up to 3 may run concurrently)
+ *     summary: Get the employee's currently running timers (how many may run concurrently is configurable, see /api/timer-settings)
  *     security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
  *     parameters:
  *       - in: query

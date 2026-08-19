@@ -38,6 +38,7 @@ const ownerApiKeyRoutes = require('./routes/ownerApiKeys');
 const dashboardWidgetRoutes = require('./routes/dashboardWidgets');
 const ownerEmailRoutes = require('./routes/ownerEmail');
 const searchRoutes = require('./routes/search');
+const timerSettingsRoutes = require('./routes/timerSettings');
 const clientPortalRoutes = require('./routes/clientPortal');
 
 const app = express();
@@ -108,6 +109,7 @@ app.use('/api/owner/api-keys', ownerApiKeyRoutes);
 app.use('/api/dashboard-widgets', dashboardWidgetRoutes);
 app.use('/api/owner/email', ownerEmailRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/timer-settings', timerSettingsRoutes);
 app.use('/api', clientPortalRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'not_found', message: `No route: ${req.method} ${req.path}` }));

@@ -110,6 +110,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 | `employees.js` | CRUD עובדים; מסנן שדות לפי role (ראו "דפוס פרטיות" למטה) |
 | `projects.js` | CRUD **לקוחות** |
 | `timeEntries.js` | שעונים/דיווחי זמן |
+| `timerSettings.js` | מדיניות שעונים per-company — כרגע רק `max_concurrent_timers` (ראו למטה) |
 | `tasks.js` | משימות — קישור ללקוח/עובד, דדליין, סטטוס |
 | `apiKeys.js`, `webhooks.js` | אינטגרציות חיצוניות (מפתחות per-company, `X-API-Key` header — לא `Authorization: Bearer`). ניהול UI: `index.html` → הגדרות → "אינטגרציות (API)", admin בלבד (18.8.2026) — לפני זה ה-endpoints היו קיימים אבל בלי שום מסך, רק curl |
 | `reports.js` | דוחות/דשבורד |
@@ -200,6 +201,10 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO treetime_app;
 ### נראות סרטוני הדרכה לפי role (18.8.2026)
 
 `guide_videos.visibility` (migration 028, `'admin'`/`'all'`, ברירת מחדל `'all'`) — הסופר-אדמין בוחר לכל סרטון בנפרד, בזמן הוספה/עריכה ב-`owner/index.html` (select "מי יראה את הסרטון"), האם הוא מיועד לאדמין בלבד או לכולם. **האכיפה בפועל ב-`guides.js`** (הצד שהאדמין/עובד של החברה קוראים ממנו, לא ב-`ownerGuides.js` שהוא ה-CRUD של הסופר-אדמין) — `req.auth.role !== 'admin'` מסנן החוצה סרטוני `'admin'` **בשרת**, לפני שהם מגיעים ל-client, לא רק מוסתרים ב-UI (עקבי עם "סינון שדות לפי role" ב"מוסכמות עבודה" למטה). ב-`owner/index.html` יש badge קטן ("אדמין בלבד") ליד כותרת סרטון עם visibility כזה, כדי שהסופר-אדמין יראה בסקירה מהירה בלי לפתוח כל סרטון בנפרד.
+
+### מגבלת שעונים פתוחים במקביל — per-company, ניתנת לעריכה (19.8.2026)
+
+`POST /api/time-entries/start` תמיד חסם עובד מלפתוח יותר מדי שעונים פתוחים בו-זמנית (409 `too_many_running_timers`), אבל עד עכשיו זה היה קבוע קשיח בקוד (`MAX_CONCURRENT_TIMERS = 3`) — זהה לכל חברה, בלי שום דרך להגדיר אחרת. `company_timer_settings` (migration 033, שורה אחת per company, `max_concurrent_timers` ברירת מחדל 3) + `routes/timerSettings.js` חדש (`GET` — כל מחובר, `PATCH` — אדמין בלבד, מאמת טווח 1–20) הופכים את זה למדיניות שכל אדמין קובע לחברה שלו. `timeEntries.js`'s `/start` קורא את הערך מה-DB לפי `company_id` בכל בקשה (לא cached), נופל חזרה ל-3 אם אין שורה עדיין (חברה שלא שינתה כלום). UI: תת-סעיף חדש בהגדרות → **"הגדרות שעונים"** (שינוי שם מ"סגירה אוטומטית של דיווחי עבודה פתוחים" — הקטגוריה עכשיו כוללת גם את זה, לא רק auto-close), עם שדה מספרי + כפתור שמירה נפרד משלו (`PATCH /api/timer-settings` בפועל מול השרת — **לא** דרך `saveSettings()`/`persist()` הקיימים של אותה קטגוריה, ששומרים רק ל-`localStorage` ולכן לא היו מתאימים למדיניות אמיתית ברמת חברה).
 
 ### גישת API לאוטומציה (owner-level, לא company-level)
 

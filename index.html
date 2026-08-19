@@ -683,6 +683,7 @@ let state = {
     quota80_email_admin:false, quota80_email_employee:false, edit_request_email_admin:false, support_reply_email_admin:false, support_reply_email_employee:false },
   currentUserId: null, currentRole: 'freelancer',
   settings: { autoCloseEnabled:false, autoCloseMode:'hours', autoCloseAfterHours:8, autoCloseTime:'23:00' },
+  timerSettings: { max_concurrent_timers: 3 },
   nextId: { client: 1, freelancer: 1, entry: 1, timer: 1, editRequest: 1, supportTicket: 1, supportMessage: 1 },
 };
 
@@ -931,7 +932,7 @@ function mapTask(t){
 }
 
 async function refreshData(){
-  const [employees, projects, entries, editRequests, clientFields, intakeLinks, notificationSettings, employeeFields, employeeIntakeLinks, tickets, notifications, tasks, dashboardWidgets, apiKeys] = await Promise.all([
+  const [employees, projects, entries, editRequests, clientFields, intakeLinks, notificationSettings, employeeFields, employeeIntakeLinks, tickets, notifications, tasks, dashboardWidgets, timerSettings, apiKeys] = await Promise.all([
     apiCall('/employees'),
     apiCall('/projects'),
     apiCall('/time-entries'),
@@ -948,6 +949,7 @@ async function refreshData(){
     // a brief window right after a push where this endpoint (or its migration) might not
     // exist on the server yet. Isolate it so that window can't break login for everyone.
     apiCall('/dashboard-widgets').catch(() => []),
+    apiCall('/timer-settings').catch(() => ({ max_concurrent_timers: 3 })),
     // /api-keys is admin-only server-side (403 for employees) -- skip the call
     // entirely for non-admins instead of letting it fail the whole Promise.all.
     isAdmin() ? apiCall('/api-keys') : Promise.resolve([]),
@@ -966,6 +968,7 @@ async function refreshData(){
   state.supportTickets = tickets.map(mapTicket);
   state.tasks = tasks.map(mapTask);
   state.dashboardWidgets = dashboardWidgets;
+  state.timerSettings = timerSettings;
   state.apiKeys = apiKeys;
 }
 
@@ -4479,7 +4482,7 @@ const SETTINGS_CATEGORIES = [
   { id:'notifications', label:'הרשאות התראות', icon:ICON.bell },
   { id:'users', label:'ניהול משתמשים', icon:ICON.freelancers },
   { id:'support', label:'תמיכה', icon:ICON.support },
-  { id:'autoClose', label:'סגירה אוטומטית של דיווחי עבודה פתוחים', icon:ICON.clock },
+  { id:'autoClose', label:'הגדרות שעונים', icon:ICON.clock },
   { id:'excelExport', label:'ייצוא / ייבוא נתונים', icon:ICON.fileExport },
   { id:'integrations', label:'אינטגרציות (API)', icon:ICON.key },
   { id:'searchDocs', label:'תיעוד שדות לחיפוש (API)', icon:ICON.search },
@@ -4592,6 +4595,16 @@ function renderSettingsCategoryBody(catId){
       </div>
       <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
         <button class="btn btn-primary" onclick="saveSettings()">${ICON.check} שמור הגדרות</button>
+      </div>
+
+      <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
+        <div class="sub" style="margin-bottom:12px;">כמה שעונים פתוחים מותר לכל עובד להריץ במקביל (למשל, עובד שעובר בין כמה משימות באותו יום בלי לסגור שעון קודם)</div>
+        <div class="field">
+          <label>מקסימום שעונים פתוחים במקביל לעובד</label>
+          <input type="number" min="1" max="20" step="1" id="sMaxConcurrentTimers" value="${state.timerSettings.max_concurrent_timers}">
+          <div class="hint">ניסיון לפתוח שעון נוסף מעבר למכסה ייחסם עד שאחד השעונים הפתוחים של אותו עובד ייסגר. ברירת המחדל היא 3.</div>
+        </div>
+        <button class="btn btn-primary" onclick="saveTimerLimitSettings()">${ICON.check} שמור</button>
       </div>
     `;
   }
@@ -4803,6 +4816,19 @@ function saveSettings(){
   persist();
   toast('ההגדרות נשמרו בהצלחה');
   renderAll();
+}
+
+async function saveTimerLimitSettings(){
+  const max_concurrent_timers = Number(document.getElementById('sMaxConcurrentTimers').value);
+  if(!max_concurrent_timers || max_concurrent_timers < 1 || max_concurrent_timers > 20){
+    toast('יש להזין מספר בין 1 ל-20');
+    return;
+  }
+  try{
+    state.timerSettings = await apiCall('/timer-settings', { method:'PATCH', body: JSON.stringify({ max_concurrent_timers }) });
+    toast('ההגדרה נשמרה בהצלחה');
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
 }
 
 /* בדיקה תקופתית: סוגרת אוטומטית שעונים פתוחים לפי ההגדרות שהוגדרו למנהל המערכת */
