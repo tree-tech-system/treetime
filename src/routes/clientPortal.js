@@ -1,9 +1,23 @@
 const express = require('express');
 const crypto = require('crypto');
+const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { notifyAdmins } = require('../lib/notify');
 
 const router = express.Router();
+
+async function findActivePortalLink(token) {
+  const { rows } = await pool.query(
+    `SELECT l.id AS link_id, l.project_id, l.company_id, p.archived
+     FROM client_portal_links l
+     JOIN projects p ON p.id = l.project_id
+     WHERE l.token = $1`,
+    [token]
+  );
+  const row = rows[0];
+  return row && !row.archived ? row : null;
+}
 
 /**
  * @openapi
@@ -124,5 +138,52 @@ router.get('/client-portal/:token', async (req, res) => {
     month_used_minutes: Number(monthUsageRes.rows[0].minutes) || 0,
   });
 });
+
+/**
+ * @openapi
+ * /api/client-portal/{token}/tasks:
+ *   post:
+ *     tags: [Client Portal]
+ *     summary: Public -- let the client open a task through their portal link. Unassigned, tagged to their client card.
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [description]
+ *             properties:
+ *               description: { type: string }
+ *     responses:
+ *       201: { description: Task created }
+ *       404: { description: Link not found, or the client is archived }
+ */
+router.post(
+  '/client-portal/:token/tasks',
+  body('description').isString().trim().notEmpty(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'validation_error', details: errors.array() });
+
+    const link = await findActivePortalLink(req.params.token);
+    if (!link) return res.status(404).json({ error: 'invalid_link' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO tasks (company_id, project_id, description, status)
+       VALUES ($1,$2,$3,'new') RETURNING *`,
+      [link.company_id, link.project_id, req.body.description]
+    );
+    const task = rows[0];
+    const clientRes = await pool.query('SELECT name, business_name FROM projects WHERE id = $1', [link.project_id]);
+    const clientName = clientRes.rows[0]?.business_name || clientRes.rows[0]?.name || '';
+    notifyAdmins(link.company_id, 'client_task_created', `משימה חדשה מהלקוח ${clientName}`, task.description, 'tasks');
+    res.status(201).json(task);
+  }
+);
 
 module.exports = router;
