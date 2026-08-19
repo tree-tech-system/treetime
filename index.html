@@ -469,6 +469,7 @@
     box-shadow:0 0 0 0 rgba(63,152,99,0.6); animation:pulse 1.8s infinite;
   }
   .mini-timer-card.overtime .pulse{ background:#E4695A; box-shadow:0 0 0 0 rgba(228,105,90,0.6); animation:pulse-red 1.4s infinite; }
+  .mini-timer-card.paused .pulse{ background:#8FA192; box-shadow:none; animation:none; }
   .mini-timer-card .info{ flex:1; min-width:0; }
   .mini-timer-card .name{ font-size:11.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px; }
   .mini-timer-card .clock{ font-family:'Roboto Mono'; font-size:13.5px; margin-top:1px; }
@@ -586,6 +587,7 @@ const ICON = {
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>`,
   play: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`,
   stop: `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`,
+  pause: `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>`,
   alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>`,
   check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6L9 17l-5-5"/></svg>`,
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>`,
@@ -921,7 +923,7 @@ function mapEntry(t){
   };
 }
 function mapActiveTimer(t){
-  return { id: String(t.id), freelancerId: String(t.employee_id), clientId: t.project_id?String(t.project_id):null, taskId: t.task_id?String(t.task_id):null, startedAt: t.started_at };
+  return { id: String(t.id), freelancerId: String(t.employee_id), clientId: t.project_id?String(t.project_id):null, taskId: t.task_id?String(t.task_id):null, startedAt: t.started_at, pausedAt: t.paused_at, pausedSeconds: t.paused_seconds||0 };
 }
 function mapTask(t){
   return {
@@ -1180,11 +1182,19 @@ function daysSince(dateStr){
   const d1 = new Date(dateStr+'T00:00:00'), d2 = new Date(); d2.setHours(0,0,0,0);
   return Math.round((d2-d1)/86400000);
 }
-function elapsedMinutes(startedAtIso){
-  return Math.floor((Date.now() - new Date(startedAtIso).getTime())/60000);
+/* elapsedMinutes/elapsedClock take the full timer object (not just startedAt) so the
+   result freezes while paused: whatever's already banked in pausedSeconds, plus the
+   ongoing span since pausedAt if it's paused right now, is subtracted from raw elapsed. */
+function timerPausedSecondsSoFar(t){
+  const base = t.pausedSeconds||0;
+  if(t.pausedAt) return base + Math.max(0, Math.floor((Date.now() - new Date(t.pausedAt).getTime())/1000));
+  return base;
 }
-function elapsedClock(startedAtIso){
-  const totalSec = Math.floor((Date.now() - new Date(startedAtIso).getTime())/1000);
+function elapsedMinutes(t){
+  return Math.floor(((Date.now() - new Date(t.startedAt).getTime())/1000 - timerPausedSecondsSoFar(t))/60);
+}
+function elapsedClock(t){
+  const totalSec = Math.max(0, Math.floor((Date.now() - new Date(t.startedAt).getTime())/1000 - timerPausedSecondsSoFar(t)));
   const h = Math.floor(totalSec/3600), m = Math.floor((totalSec%3600)/60), s = totalSec%60;
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
@@ -1626,13 +1636,13 @@ function renderDashboard(){
 
   // banners
   let banners = '';
-  const overtimeTimers = state.activeTimers.filter(t=>elapsedMinutes(t.startedAt)>=240);
+  const overtimeTimers = state.activeTimers.filter(t=>elapsedMinutes(t)>=240);
   if(overtimeTimers.length){
     banners += `<div class="banner banner-red">${ICON.alert}
       <div><b>שעון עבודה פתוח מעל 4 שעות</b>
       <div class="sub">${overtimeTimers.map(t=>{
         const f=getFreelancer(t.freelancerId), c=getClient(t.clientId);
-        return `${f?.name} על ${clientDisplayName(c)} (${elapsedClock(t.startedAt)})`;
+        return `${f?.name} על ${clientDisplayName(c)} (${elapsedClock(t)})`;
       }).join(' · ')} — נשלחה התראה למנהל המערכת (סימולציה)</div></div>
     </div>`;
   }
@@ -2768,14 +2778,20 @@ function renderTimerLists(){
   allWrap.innerHTML = state.activeTimers.length ? `<table><thead><tr><th>עובד</th><th>לקוח</th><th>זמן רץ</th><th>סטטוס</th><th></th></tr></thead><tbody>
     ${state.activeTimers.map(t=>{
       const f = getFreelancer(t.freelancerId), c = getClient(t.clientId);
-      const mins = elapsedMinutes(t.startedAt);
+      const mins = elapsedMinutes(t);
       const over = mins>=240;
+      const paused = !!t.pausedAt;
       return `<tr>
         <td><div class="row-flex"><div class="avatar">${initials(f?.name||'?')}</div>${f?.name||'—'}</div></td>
         <td>${clientDisplayName(c)}</td>
-        <td class="mono" data-timer-clock="${t.id}">${elapsedClock(t.startedAt)}</td>
-        <td>${over ? `<span class="pill pill-red">${ICON.alert} מעל 4 שעות</span>` : `<span class="pill pill-green">רץ</span>`}</td>
-        <td><button class="btn btn-sm btn-ghost" onclick="stopTimer('${t.id}')">עצור</button></td>
+        <td class="mono" data-timer-clock="${t.id}">${elapsedClock(t)}</td>
+        <td>${paused ? `<span class="pill pill-amber">${ICON.clock} מוקפא</span>` : over ? `<span class="pill pill-red">${ICON.alert} מעל 4 שעות</span>` : `<span class="pill pill-green">רץ</span>`}</td>
+        <td style="display:flex; gap:6px;">
+          ${paused
+            ? `<button class="btn btn-sm btn-ghost" onclick="resumeTimer('${t.id}')">${ICON.play} המשך</button>`
+            : `<button class="btn btn-sm btn-ghost" onclick="pauseTimer('${t.id}')">${ICON.clock} השהה</button>`}
+          <button class="btn btn-sm btn-ghost" onclick="stopTimer('${t.id}')">עצור</button>
+        </td>
       </tr>`;
     }).join('')}
   </tbody></table>` : `<div class="empty-state">${ICON.clock}<div class="t">אין שעונים פתוחים במערכת</div></div>`;
@@ -2785,7 +2801,7 @@ function exportActiveTimersToExcel(){
   if(!state.activeTimers.length){ toast('אין שעונים פתוחים כרגע'); return; }
   const rows = state.activeTimers.map(t=>{
     const f = getFreelancer(t.freelancerId), c = getClient(t.clientId);
-    const mins = elapsedMinutes(t.startedAt);
+    const mins = elapsedMinutes(t);
     return {
       'עובד': f?.name || '—',
       'לקוח': clientDisplayName(c),
@@ -2804,7 +2820,7 @@ function stopTimer(timerId){
   const c = getClient(t.clientId);
   const startedDate = new Date(t.startedAt);
   const nowD = new Date();
-  const minutes = Math.max(1, Math.round((nowD-startedDate)/60000));
+  const minutes = Math.max(1, Math.round(((nowD-startedDate)/1000 - timerPausedSecondsSoFar(t))/60));
   const startTime = `${String(startedDate.getHours()).padStart(2,'0')}:${String(startedDate.getMinutes()).padStart(2,'0')}`;
   const endTime = nowTimeStr();
   const rate = parseRate(getFreelancer(t.freelancerId)?.hourlyRate);
@@ -2829,6 +2845,7 @@ function stopTimer(timerId){
         <div class="field"><label>שעת סיום</label><input type="time" id="stopEnd" value="${endTime}" oninput="updateStopDuration()"></div>
       </div>
       <div class="hint" style="margin:-6px 0 12px;">${rate ? `הדיווח ייצרב לפי תעריף ${fmtCurrency(rate)} לשעה (${getFreelancer(t.freelancerId)?.name})` : `לא הוגדר תעריף שעתי ל-${getFreelancer(t.freelancerId)?.name} — הדיווח ייצרב בעלות 0 ₪`}</div>
+      ${timerPausedSecondsSoFar(t)>0 ? `<div class="hint" style="margin:-6px 0 12px;">${ICON.clock} הזמן שבו השעון היה מוקפא (${fmtMinutes(Math.round(timerPausedSecondsSoFar(t)/60))}) לא נכלל במשך המחושב</div>` : ''}
       <div class="field">
         <label>תיאור דיווח העבודה</label>
         <textarea id="stopDesc" placeholder="מה בוצע בזמן הזה? (חובה למלא לפחות 10 תווים)" oninput="updateStopDescCounter()"></textarea>
@@ -2841,6 +2858,22 @@ function stopTimer(timerId){
     </div>
   `);
   updateStopDescCounter();
+}
+
+async function pauseTimer(timerId){
+  try{
+    await apiCall('/time-entries/pause', { method:'POST', body: JSON.stringify({ entry_id: Number(timerId) }) });
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+async function resumeTimer(timerId){
+  try{
+    await apiCall('/time-entries/resume', { method:'POST', body: JSON.stringify({ entry_id: Number(timerId) }) });
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
 }
 
 function updateStopDuration(){
@@ -4625,7 +4658,10 @@ function renderTasksPage(){
             let timerBtn = '';
             if(t.status!=='done'){
               timerBtn = runningTimer
-                ? `<button class="btn btn-sm btn-danger-ghost" onclick="event.stopPropagation(); stopTimer('${runningTimer.id}')">${ICON.stop} עצור</button>`
+                ? `${runningTimer.pausedAt
+                    ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); resumeTimer('${runningTimer.id}')">${ICON.play} המשך</button>`
+                    : `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); pauseTimer('${runningTimer.id}')">${ICON.pause} השהה</button>`}
+                   <button class="btn btn-sm btn-danger-ghost" onclick="event.stopPropagation(); stopTimer('${runningTimer.id}')">${ICON.stop} עצור</button>`
                 : `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); startTimerForTask('${t.id}')">${ICON.play} התחל שעון</button>`;
             }
             return `<tr style="cursor:pointer;" onclick="openTaskDetail('${t.id}')">
@@ -4705,8 +4741,13 @@ function openTaskDetail(taskId){
       <hr style="margin:16px 0; border:none; border-top:1px solid var(--border);">
       <div id="taskTimerArea">
         ${runningTimer
-          ? `<div class="hint" style="margin-bottom:10px;">${ICON.clock} שעון פועל על משימה זו מאז ${new Date(runningTimer.startedAt).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}</div>
-             <button class="btn btn-danger-ghost btn-block" onclick="closeModal(); stopTimer('${runningTimer.id}')">${ICON.stop} עצור שעון</button>`
+          ? `<div class="hint" style="margin-bottom:10px;">${ICON.clock} שעון ${runningTimer.pausedAt?'מוקפא':'פועל'} על משימה זו מאז ${new Date(runningTimer.startedAt).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}</div>
+             <div style="display:flex; gap:8px;">
+               ${runningTimer.pausedAt
+                 ? `<button class="btn btn-ghost" style="flex:1;" onclick="resumeTimer('${runningTimer.id}').then(()=>openTaskDetail('${t.id}'))">${ICON.play} המשך שעון</button>`
+                 : `<button class="btn btn-ghost" style="flex:1;" onclick="pauseTimer('${runningTimer.id}').then(()=>openTaskDetail('${t.id}'))">${ICON.pause} השהה שעון</button>`}
+               <button class="btn btn-danger-ghost" style="flex:1;" onclick="closeModal(); stopTimer('${runningTimer.id}')">${ICON.stop} עצור שעון</button>
+             </div>`
           : (t.status!=='done'
               ? `<button class="btn btn-primary btn-block" onclick="startTimerForTask('${t.id}')">${ICON.play} התחל שעון על המשימה הזו</button>`
               : '')}
@@ -5219,7 +5260,7 @@ function checkAutoCloseTimers(){
   state.activeTimers.forEach(t=>{
     let shouldClose = false;
     if(s.autoCloseMode === 'hours'){
-      if(elapsedMinutes(t.startedAt) >= s.autoCloseAfterHours*60) shouldClose = true;
+      if(elapsedMinutes(t) >= s.autoCloseAfterHours*60) shouldClose = true;
     }else if(s.autoCloseMode === 'time'){
       const [h,m] = (s.autoCloseTime||'23:00').split(':').map(Number);
       const cutoff = new Date(); cutoff.setHours(h,m,0,0);
@@ -5269,13 +5310,17 @@ function renderGlobalTimerWidget(){
 
   const miniCards = myActive.map(t=>{
     const c = getClient(t.clientId);
-    const over = elapsedMinutes(t.startedAt)>=240;
-    return `<div class="mini-timer-card ${over?'overtime':''}">
+    const over = elapsedMinutes(t)>=240;
+    const paused = !!t.pausedAt;
+    return `<div class="mini-timer-card ${over?'overtime':''} ${paused?'paused':''}">
       <div class="pulse"></div>
       <div class="info">
-        <div class="name">${clientDisplayName(c)}</div>
-        <div class="clock mono" data-timer-clock="${t.id}">${elapsedClock(t.startedAt)}</div>
+        <div class="name">${clientDisplayName(c)}${paused?' · מוקפא':''}</div>
+        <div class="clock mono" data-timer-clock="${t.id}">${elapsedClock(t)}</div>
       </div>
+      ${paused
+        ? `<button class="mini-stop" title="המשך שעון" onclick="resumeTimer('${t.id}')">${ICON.play}</button>`
+        : `<button class="mini-stop" title="השהה שעון" onclick="pauseTimer('${t.id}')">${ICON.pause}</button>`}
       <button class="mini-stop" title="עצור שעון" onclick="stopTimer('${t.id}')">${ICON.stop}</button>
     </div>`;
   }).join('');
@@ -5399,7 +5444,7 @@ setInterval(()=>{
   if(!state.activeTimers.length) return;
   document.querySelectorAll('[data-timer-clock]').forEach(el=>{
     const t = state.activeTimers.find(x=>x.id===el.dataset.timerClock);
-    if(t) el.textContent = elapsedClock(t.startedAt);
+    if(t) el.textContent = elapsedClock(t);
   });
   // refresh overtime styling / badges every minute boundary without full rerender cost
 }, 1000);
