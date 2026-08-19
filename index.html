@@ -2694,7 +2694,6 @@ function renderClientsPage(){
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn btn-ghost" onclick="openManageFieldsModal()">${ICON.settings} שדות מותאמים אישית</button>
-        <button class="btn btn-ghost" onclick="generateIntakeLink()">${ICON.mail} לינק ללקוח למילוי עצמי</button>
         <button class="btn btn-primary" onclick="openClientForm()">${ICON.plus} לקוח חדש</button>
       </div>
     </div>
@@ -2778,35 +2777,12 @@ async function toggleClientField(fieldId, currentlyActive){
   }catch(err){ toast('שגיאה: '+err.message); }
 }
 
-async function generateIntakeLink(){
-  try{
-    const link = await apiCall('/client-intake-links', { method:'POST' });
-    await refreshData();
-    const url = `${location.origin}/intake/${link.token}/`;
-    openModal(`
-      <div class="modal-head"><h3>לינק חד-פעמי ללקוח</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
-      <div class="modal-body">
-        <div class="hint" style="margin-bottom:10px;">שלח את הקישור הזה ללקוח. לאחר שהוא ימלא את הפרטים, הקישור ינעל אוטומטית ולא ניתן יהיה להשתמש בו שוב.</div>
-        <div class="field"><input type="text" id="intakeLinkUrl" value="${url}" readonly onclick="this.select()"></div>
-        <button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="copyIntakeLink()">העתק קישור</button>
-      </div>
-      <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">סגור</button></div>
-    `);
-  }catch(err){ toast('שגיאה: '+err.message); }
-}
-
 async function acknowledgeIntake(linkId){
   try{
     await apiCall(`/client-intake-links/${linkId}/seen`, { method:'PATCH' });
     await refreshData();
     renderAll();
   }catch(err){ toast('שגיאה: '+err.message); }
-}
-
-function copyIntakeLink(){
-  const el = document.getElementById('intakeLinkUrl');
-  el.select();
-  navigator.clipboard?.writeText(el.value).then(()=>toast('הקישור הועתק')).catch(()=>toast('לא ניתן היה להעתיק אוטומטית — יש להעתיק ידנית'));
 }
 
 async function openClientPortalLinkModal(clientId){
