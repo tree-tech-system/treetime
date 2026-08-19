@@ -2820,7 +2820,7 @@ function stopTimer(timerId){
   const c = getClient(t.clientId);
   const startedDate = new Date(t.startedAt);
   const nowD = new Date();
-  const minutes = Math.max(1, Math.round(((nowD-startedDate)/1000 - timerPausedSecondsSoFar(t))/60));
+  const minutes = Math.max(1, Math.round((nowD-startedDate)/60000));
   const startTime = `${String(startedDate.getHours()).padStart(2,'0')}:${String(startedDate.getMinutes()).padStart(2,'0')}`;
   const endTime = nowTimeStr();
   const rate = parseRate(getFreelancer(t.freelancerId)?.hourlyRate);
@@ -2845,7 +2845,6 @@ function stopTimer(timerId){
         <div class="field"><label>שעת סיום</label><input type="time" id="stopEnd" value="${endTime}" oninput="updateStopDuration()"></div>
       </div>
       <div class="hint" style="margin:-6px 0 12px;">${rate ? `הדיווח ייצרב לפי תעריף ${fmtCurrency(rate)} לשעה (${getFreelancer(t.freelancerId)?.name})` : `לא הוגדר תעריף שעתי ל-${getFreelancer(t.freelancerId)?.name} — הדיווח ייצרב בעלות 0 ₪`}</div>
-      ${timerPausedSecondsSoFar(t)>0 ? `<div class="hint" style="margin:-6px 0 12px;">${ICON.clock} הזמן שבו השעון היה מוקפא (${fmtMinutes(Math.round(timerPausedSecondsSoFar(t)/60))}) לא נכלל במשך המחושב</div>` : ''}
       <div class="field">
         <label>תיאור דיווח העבודה</label>
         <textarea id="stopDesc" placeholder="מה בוצע בזמן הזה? (חובה למלא לפחות 10 תווים)" oninput="updateStopDescCounter()"></textarea>
@@ -2858,6 +2857,34 @@ function stopTimer(timerId){
     </div>
   `);
   updateStopDescCounter();
+}
+
+function openTimerDetail(timerId){
+  const t = state.activeTimers.find(x=>x.id===timerId);
+  if(!t) return;
+  const c = getClient(t.clientId);
+  const task = t.taskId ? state.tasks.find(x=>x.id===t.taskId) : null;
+  const f = getFreelancer(t.freelancerId);
+
+  openModal(`
+    <div class="modal-head"><h3>שעון פעיל</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>עובד</label><div>${f?.name||'—'}</div></div>
+      <div class="field"><label>לקוח</label><div>${c?clientDisplayName(c):'<span class="cell-muted">לא מקושר</span>'}</div></div>
+      ${task ? `<div class="field"><label>משימה מקושרת</label><div>${task.description}</div></div>` : ''}
+      <div class="field-row">
+        <div class="field"><label>התחיל בשעה</label><div>${new Date(t.startedAt).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}</div></div>
+        <div class="field"><label>זמן שרץ</label><div class="mono" data-timer-clock="${t.id}" style="font-size:17px; font-weight:700;">${elapsedClock(t)}</div></div>
+      </div>
+      ${t.pausedAt ? `<div class="hint">${ICON.pause} השעון מוקפא כרגע</div>` : ''}
+    </div>
+    <div class="modal-foot">
+      ${t.pausedAt
+        ? `<button class="btn btn-primary" onclick="resumeTimer('${t.id}').then(()=>openTimerDetail('${t.id}'))">${ICON.play} המשך שעון</button>`
+        : `<button class="btn btn-ghost" onclick="pauseTimer('${t.id}').then(()=>openTimerDetail('${t.id}'))">${ICON.pause} השהה שעון</button>`}
+      <button class="btn btn-danger-ghost" onclick="closeModal(); stopTimer('${t.id}')">${ICON.stop} סיים דיווח</button>
+    </div>
+  `);
 }
 
 async function pauseTimer(timerId){
@@ -4300,10 +4327,27 @@ function openFreelancerForm(freelancerId){
     </div>
     <div class="modal-foot">
       <button class="btn btn-primary" onclick="saveFreelancer(${f?`'${f.id}'`:'null'})">${ICON.check} שמור</button>
+      ${f && f.id!==state.currentUserId ? `<button class="btn btn-ghost" title="היכנס למערכת כמשתמש הזה" onclick="impersonateEmployee('${f.id}')">${ICON.bolt} היכנס בתור</button>` : ''}
       <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
     </div>
     <div class="error hidden" id="frError" style="color:var(--red);font-size:13px;padding:0 20px 14px;"></div>
   `);
+}
+
+async function impersonateEmployee(employeeId){
+  // Open the tab synchronously, before any await -- otherwise browsers treat the
+  // later window.open as not user-initiated and silently block it.
+  const newTab = window.open('', '_blank');
+  try{
+    const res = await apiCall(`/employees/${employeeId}/impersonate`, { method:'POST' });
+    toast(`נכנס בתור ${res.employee.full_name} (${res.employee.role==='admin'?'אדמין':'עובד'})...`);
+    const url = `/c/${state.companySlug}/?token=${encodeURIComponent(res.token)}`;
+    if(newTab) newTab.location.href = url;
+    else window.open(url, '_blank');
+  }catch(err){
+    if(newTab) newTab.close();
+    toast('שגיאה: '+err.message);
+  }
 }
 
 let pendingEmployeeFieldFiles = {};
@@ -5312,16 +5356,16 @@ function renderGlobalTimerWidget(){
     const c = getClient(t.clientId);
     const over = elapsedMinutes(t)>=240;
     const paused = !!t.pausedAt;
-    return `<div class="mini-timer-card ${over?'overtime':''} ${paused?'paused':''}">
+    return `<div class="mini-timer-card ${over?'overtime':''} ${paused?'paused':''}" style="cursor:pointer;" onclick="openTimerDetail('${t.id}')">
       <div class="pulse"></div>
       <div class="info">
         <div class="name">${clientDisplayName(c)}${paused?' · מוקפא':''}</div>
         <div class="clock mono" data-timer-clock="${t.id}">${elapsedClock(t)}</div>
       </div>
       ${paused
-        ? `<button class="mini-stop" title="המשך שעון" onclick="resumeTimer('${t.id}')">${ICON.play}</button>`
-        : `<button class="mini-stop" title="השהה שעון" onclick="pauseTimer('${t.id}')">${ICON.pause}</button>`}
-      <button class="mini-stop" title="עצור שעון" onclick="stopTimer('${t.id}')">${ICON.stop}</button>
+        ? `<button class="mini-stop" title="המשך שעון" onclick="event.stopPropagation(); resumeTimer('${t.id}')">${ICON.play}</button>`
+        : `<button class="mini-stop" title="השהה שעון" onclick="event.stopPropagation(); pauseTimer('${t.id}')">${ICON.pause}</button>`}
+      <button class="mini-stop" title="עצור שעון" onclick="event.stopPropagation(); stopTimer('${t.id}')">${ICON.stop}</button>
     </div>`;
   }).join('');
 
