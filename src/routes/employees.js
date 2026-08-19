@@ -1,4 +1,5 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const fs = require('fs');
 const path = require('path');
@@ -192,6 +193,45 @@ router.patch(
     res.json(rows[0]);
   }
 );
+
+/**
+ * @openapi
+ * /api/employees/{id}/impersonate:
+ *   post:
+ *     tags: [Employees]
+ *     summary: Get a short-lived login token into one of your own company's employee accounts (admin only)
+ *     description: >
+ *       Lets an admin see the system exactly as one of their employees does, e.g. to debug a
+ *       support question. The action is recorded in an audit log. The returned token expires
+ *       in 1 hour. Mirrors the owner-level impersonate endpoint, scoped to the admin's own company.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Impersonation token issued }
+ *       404: { description: No such employee in this company }
+ */
+router.post('/:id/impersonate', requireRole('admin'), async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM employees WHERE id = $1 AND company_id = $2', [req.params.id, req.auth.companyId]);
+  const employee = rows[0];
+  if (!employee) return res.status(404).json({ error: 'not_found' });
+
+  await pool.query(
+    'INSERT INTO employee_impersonation_log (company_id, admin_id, employee_id) VALUES ($1,$2,$3)',
+    [req.auth.companyId, req.auth.employeeId, employee.id]
+  );
+
+  const token = jwt.sign(
+    { sub: employee.id, role: employee.role, company_id: employee.company_id, impersonated_by: req.auth.employeeId },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+
+  res.json({ token, employee: { id: employee.id, full_name: employee.full_name, email: employee.email, role: employee.role } });
+});
 
 async function assertEmployeeInCompany(employeeId, companyId) {
   const { rows } = await pool.query('SELECT id FROM employees WHERE id = $1 AND company_id = $2', [employeeId, companyId]);
