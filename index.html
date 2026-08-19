@@ -606,6 +606,7 @@ const ICON = {
   tasks: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
   chevronDown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`,
   key: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.5 12.5L19 4"/><path d="M17 6l2 2"/><path d="M14.5 8.5l2 2"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>`,
 };
 
 /* ---------------------------- STATE / STORAGE ---------------------------- */
@@ -4481,11 +4482,26 @@ const SETTINGS_CATEGORIES = [
   { id:'autoClose', label:'סגירה אוטומטית של דיווחי עבודה פתוחים', icon:ICON.clock },
   { id:'excelExport', label:'ייצוא / ייבוא נתונים', icon:ICON.fileExport },
   { id:'integrations', label:'אינטגרציות (API)', icon:ICON.key },
+  { id:'searchDocs', label:'תיעוד שדות לחיפוש (API)', icon:ICON.search },
 ];
 let settingsOpenCategory = 'general';
+let searchDocsData = null;
 
 function toggleSettingsCategory(catId){
   settingsOpenCategory = catId;
+  if(catId==='searchDocs' && !searchDocsData) loadSearchDocs();
+  renderAll();
+}
+
+async function loadSearchDocs(){
+  try{
+    const entities = await apiCall('/search/entities');
+    searchDocsData = await Promise.all(entities.map(async e => ({
+      ...e, fields: await apiCall(`/search/entities/${e.key}/fields`),
+    })));
+  }catch(err){
+    searchDocsData = { error: err.message };
+  }
   renderAll();
 }
 
@@ -4516,6 +4532,7 @@ function renderSettingsCategoryBody(catId){
   if(catId==='users') return renderFreelancersPage();
   if(catId==='support') return renderSupportPage();
   if(catId==='integrations') return renderApiKeysPanel();
+  if(catId==='searchDocs') return renderSearchDocsPanel();
   if(catId==='excelExport'){
     return `
       <div class="sub" style="margin-bottom:12px;">כל אפשרויות הייצוא במערכת רוכזו כאן במקום אחד</div>
@@ -4658,6 +4675,31 @@ async function revokeApiKeyFromSettings(id){
     renderAll();
     toast('המפתח בוטל');
   }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+/* ---- Search fields reference doc (for building external integrations, e.g. Make) ---- */
+const SEARCH_FIELD_TYPE_LABELS = { text:'טקסט', number:'מספר', date:'תאריך', boolean:'כן/לא' };
+
+function renderSearchDocsPanel(){
+  if(!searchDocsData) return '<div class="empty-state">טוען...</div>';
+  if(searchDocsData.error) return `<div class="error">שגיאה בטעינת התיעוד: ${searchDocsData.error}</div>`;
+  return `
+    <div class="hint" style="margin-bottom:16px;">
+      כל האזורים והשדות הזמינים ל-API החיפוש הכללי (<code class="mono">/api/search</code>) — לשימוש באינטגרציות חיצוניות כמו Make. "שם טכני" הוא בדיוק מה שצריך להזין בקוד/RPC (רגיש לאותיות קטנות/גדולות).
+    </div>
+    ${searchDocsData.map(e => `
+      <div class="card" style="margin-bottom:16px;">
+        <h3 style="margin-bottom:2px;">${e.label}</h3>
+        <div class="mono" style="font-size:12px; color:var(--muted); margin-bottom:12px;">שם טכני של האזור: ${e.key}</div>
+        <table>
+          <thead><tr><th>שם השדה</th><th>שם טכני (אנגלית)</th><th>סוג</th></tr></thead>
+          <tbody>
+            ${e.fields.map(f => `<tr><td>${f.label}</td><td class="mono">${f.key}</td><td>${SEARCH_FIELD_TYPE_LABELS[f.type] || f.type}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `).join('')}
+  `;
 }
 
 function renderSettingsPage(){
