@@ -25,6 +25,6 @@ jobs:
             find . -mindepth 1 -maxdepth 1 \
               ! -name .git ! -name index.html ! -name admin-invite \
               ! -name intake ! -name join ! -name owner ! -name signup \
-              ! -name reset-password ! -name confirm-email \
+              ! -name reset-password ! -name confirm-email ! -name portal \
               ! -name .well-known \
               -exec rm -rf {} +

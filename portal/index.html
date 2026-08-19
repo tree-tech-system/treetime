@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>כרטיס לקוח</title>
+<link rel="icon" type="image/png" href="/api/branding/logo" id="faviconLink">
+<script>document.getElementById('faviconLink').href = '/api/branding/logo?v=' + Date.now();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10241C; --bg:#FAF9F4; --panel:#FFFFFF; --border:#E4E1D6;
+    --muted:#6B7568; --green:#2F6F4E; --green-soft:#E7F1EA; --green-bright:#3F9863;
+    --amber:#B7791F; --red:#C0392B; --shadow: 0 1px 2px rgba(16,36,28,0.04), 0 8px 24px rgba(16,36,28,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{ font-family:'Assistant',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; padding:24px; }
+  h1,h2,h3{ font-family:'Rubik',sans-serif; margin:0; }
+  .wrap{ max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow); padding:22px; }
+  .head-title{ font-size:20px; }
+  .sub{ font-size:13px; color:var(--muted); margin-top:4px; }
+  .row{ display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--border); font-size:13.5px; }
+  .row:last-child{ border-bottom:none; }
+  .row .k{ color:var(--muted); }
+  .row .v{ font-weight:600; text-align:left; }
+  .pill{ display:inline-block; padding:3px 10px; border-radius:99px; font-size:11.5px; font-weight:700; }
+  .pill-green{ background:var(--green-soft); color:var(--green); }
+  .pill-gray{ background:#EFEDE4; color:var(--muted); }
+  .progress-track{ height:8px; border-radius:99px; background:#EFEDE4; overflow:hidden; }
+  .progress-fill{ height:100%; border-radius:99px; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th{ text-align:right; color:var(--muted); font-weight:600; font-size:12px; padding:6px 8px; border-bottom:1px solid var(--border); }
+  td{ padding:8px; border-bottom:1px solid var(--border); }
+  tr:last-child td{ border-bottom:none; }
+  .empty{ color:var(--muted); font-size:13px; padding:6px 0; }
+  .state-screen{ text-align:center; padding:40px 20px; }
+  .state-screen .t{ font-size:16px; font-weight:700; margin:10px 0 6px; }
+  .state-screen .s{ font-size:13.5px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <div class="panel state-screen" id="loadingState">טוען...</div>
+</div>
+
+<script>
+const API = '/api';
+const $ = (id) => document.getElementById(id);
+const token = new URLSearchParams(location.search).get('token');
+
+function fmtHours(mins){
+  const h = mins/60;
+  return (Math.round(h*10)/10).toLocaleString('he-IL');
+}
+function fmtDate(iso){
+  return iso ? new Date(iso).toLocaleDateString('he-IL') : '';
+}
+function fmtDuration(startedAt, endedAt){
+  if(!endedAt) return '';
+  const mins = Math.round((new Date(endedAt) - new Date(startedAt)) / 60000);
+  return fmtHours(mins) + ' ש׳';
+}
+const STATUS_LABEL = { new:'חדשה', in_progress:'בביצוע', done:'הושלמה' };
+
+function renderInvalid(){
+  $('wrap').innerHTML = `
+    <div class="panel state-screen">
+      <div class="t">הקישור אינו זמין</div>
+      <div class="s">הקישור לא נמצא, או שהלקוח אינו פעיל יותר במערכת. יש לפנות לבעל העסק לקבלת קישור מעודכן.</div>
+    </div>
+  `;
+}
+
+function renderPortal(data){
+  const c = data.client;
+  const hasQuota = !!(c.use_hours_bank && c.monthly_quota_hours > 0);
+  const usedMins = data.month_used_minutes || 0;
+  const pct = hasQuota ? Math.min(100, usedMins/(c.monthly_quota_hours*60)*100) : 0;
+  const pctColor = pct>=100 ? 'var(--red)' : pct>=80 ? 'var(--amber)' : 'var(--green)';
+  const displayName = c.business_name || c.name || data.company_name;
+
+  const fieldsHtml = data.custom_fields.length ? data.custom_fields.map(f => `
+    <div class="row"><span class="k">${f.label}</span><span class="v">${f.value || (f.file_name ? f.file_name : '—')}</span></div>
+  `).join('') : '';
+
+  const entriesHtml = data.time_entries.length ? `
+    <table>
+      <thead><tr><th>תאריך</th><th>תיאור</th><th>משך</th></tr></thead>
+      <tbody>
+        ${data.time_entries.slice(0, 50).map(e => `
+          <tr><td>${fmtDate(e.started_at)}</td><td>${e.description || '—'}</td><td>${fmtDuration(e.started_at, e.ended_at)}</td></tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<div class="empty">אין עדיין דיווחי עבודה</div>`;
+
+  const tasksHtml = data.tasks.length ? `
+    <table>
+      <thead><tr><th>משימה</th><th>סטטוס</th><th>דדליין</th></tr></thead>
+      <tbody>
+        ${data.tasks.map(t => `
+          <tr><td>${t.description}</td><td>${STATUS_LABEL[t.status] || t.status}</td><td>${fmtDate(t.deadline) || '—'}</td></tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<div class="empty">אין משימות פתוחות</div>`;
+
+  $('wrap').innerHTML = `
+    <div class="panel">
+      <div class="head-title">${displayName}</div>
+      <div class="sub">כרטיס לקוח — ${data.company_name}</div>
+      <div style="margin-top:14px;">
+        ${c.name && c.business_name ? `<div class="row"><span class="k">איש קשר</span><span class="v">${c.name}</span></div>` : ''}
+        ${c.contact_phone ? `<div class="row"><span class="k">טלפון</span><span class="v">${c.contact_phone}</span></div>` : ''}
+        ${c.contact_email ? `<div class="row"><span class="k">אימייל</span><span class="v">${c.contact_email}</span></div>` : ''}
+        ${c.description ? `<div class="row"><span class="k">פרטים</span><span class="v">${c.description}</span></div>` : ''}
+        ${fieldsHtml}
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="font-size:14.5px; margin-bottom:12px;">בנק שעות</h3>
+      ${hasQuota ? `
+        <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px;">
+          <span style="font-weight:700;">${fmtHours(usedMins)} / ${c.monthly_quota_hours} ש׳ החודש</span>
+          <span style="color:${pctColor}; font-weight:700;">${Math.round(pct)}%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${pctColor};"></div></div>
+      ` : `<span class="pill pill-gray">ללא בנק שעות</span> <span class="sub" style="display:inline;">${fmtHours(usedMins)} ש׳ נרשמו החודש</span>`}
+    </div>
+
+    <div class="panel">
+      <h3 style="font-size:14.5px; margin-bottom:12px;">משימות</h3>
+      ${tasksHtml}
+    </div>
+
+    <div class="panel">
+      <h3 style="font-size:14.5px; margin-bottom:12px;">דיווחי עבודה אחרונים</h3>
+      ${entriesHtml}
+    </div>
+  `;
+}
+
+(async function boot(){
+  if(!token){ renderInvalid(); return; }
+  try{
+    const res = await fetch(`${API}/client-portal/${token}`);
+    if(!res.ok){ renderInvalid(); return; }
+    const data = await res.json();
+    renderPortal(data);
+  }catch(err){ renderInvalid(); }
+})();
+</script>
+</body>
+</html>
