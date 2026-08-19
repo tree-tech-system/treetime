@@ -39,6 +39,27 @@
   .state-screen{ text-align:center; padding:40px 20px; }
   .state-screen .t{ font-size:16px; font-weight:700; margin:10px 0 6px; }
   .state-screen .s{ font-size:13.5px; color:var(--muted); }
+  .panel-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .btn-sm{ border:none; border-radius:8px; padding:7px 12px; font-family:'Rubik'; font-weight:700;
+           font-size:12.5px; cursor:pointer; background:var(--green-soft); color:var(--green); }
+  .btn-sm:hover{ background:#DCEBE1; }
+  .new-task-form{ display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+  .new-task-form.open{ display:block; }
+  .new-task-form textarea{
+    width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:9px;
+    font-family:'Assistant'; font-size:13.5px; background:#FCFBF7; color:var(--ink); resize:vertical; min-height:60px;
+  }
+  .new-task-form textarea:focus{ outline:none; border-color:var(--green-bright); }
+  .new-task-form .actions{ display:flex; gap:8px; margin-top:8px; }
+  .new-task-form button{ border:none; border-radius:9px; padding:8px 14px; font-family:'Rubik'; font-weight:700;
+                          font-size:13px; cursor:pointer; }
+  .new-task-form .btn-primary{ background:var(--green); color:#fff; }
+  .new-task-form .btn-primary:hover{ background:var(--green-bright); }
+  .new-task-form .btn-primary:disabled{ opacity:.6; cursor:not-allowed; }
+  .new-task-form .btn-cancel{ background:transparent; color:var(--muted); }
+  .new-task-form .msg{ font-size:12.5px; margin-top:6px; }
+  .new-task-form .msg.err{ color:var(--red); }
+  .new-task-form .msg.ok{ color:var(--green); }
 </style>
 </head>
 <body>
@@ -133,8 +154,20 @@ function renderPortal(data){
     </div>
 
     <div class="panel">
-      <h3 style="font-size:14.5px; margin-bottom:12px;">משימות</h3>
+      <div class="panel-head">
+        <h3 style="font-size:14.5px;">משימות</h3>
+        <button class="btn-sm" onclick="toggleNewTaskForm()">+ פתיחת משימה</button>
+      </div>
       ${tasksHtml}
+      <div class="new-task-form" id="newTaskForm">
+        <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:5px;">מה צריך לעשות?</label>
+        <textarea id="newTaskDesc" placeholder="תיאור המשימה..."></textarea>
+        <div class="actions">
+          <button type="button" class="btn-primary" id="submitTaskBtn" onclick="submitNewTask()">שליחה</button>
+          <button type="button" class="btn-cancel" onclick="toggleNewTaskForm(false)">ביטול</button>
+        </div>
+        <div class="msg" id="newTaskMsg"></div>
+      </div>
     </div>
 
     <div class="panel">
@@ -144,14 +177,54 @@ function renderPortal(data){
   `;
 }
 
+async function loadPortal(){
+  const res = await fetch(`${API}/client-portal/${token}`);
+  if(!res.ok){ renderInvalid(); return; }
+  const data = await res.json();
+  renderPortal(data);
+}
+
+function toggleNewTaskForm(open){
+  const form = $('newTaskForm');
+  if(!form) return;
+  const shouldOpen = open===undefined ? !form.classList.contains('open') : open;
+  form.classList.toggle('open', shouldOpen);
+  if(shouldOpen) $('newTaskDesc').focus();
+}
+
+async function submitNewTask(){
+  const desc = $('newTaskDesc').value.trim();
+  const msgEl = $('newTaskMsg');
+  msgEl.textContent = '';
+  msgEl.className = 'msg';
+  if(!desc){ msgEl.textContent = 'יש להזין תיאור למשימה'; msgEl.classList.add('err'); return; }
+  const btn = $('submitTaskBtn');
+  btn.disabled = true;
+  btn.textContent = 'שולח...';
+  try{
+    const res = await fetch(`${API}/client-portal/${token}/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: desc }),
+    });
+    const data = await res.json().catch(() => null);
+    if(!res.ok) throw new Error(data?.message || data?.error || `שגיאה (${res.status})`);
+    // The full panel re-renders on reload, so there's nowhere to keep a transient
+    // "sent" message -- closing the form and letting the new task appear in the
+    // list below is the confirmation.
+    await loadPortal();
+  }catch(err){
+    msgEl.textContent = 'שגיאה: '+err.message;
+    msgEl.classList.add('err');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'שליחה';
+  }
+}
+
 (async function boot(){
   if(!token){ renderInvalid(); return; }
-  try{
-    const res = await fetch(`${API}/client-portal/${token}`);
-    if(!res.ok){ renderInvalid(); return; }
-    const data = await res.json();
-    renderPortal(data);
-  }catch(err){ renderInvalid(); }
+  try{ await loadPortal(); }catch(err){ renderInvalid(); }
 })();
 </script>
 </body>
