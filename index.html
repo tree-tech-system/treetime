@@ -4269,10 +4269,9 @@ function renderTasksPage(){
             const deadlineCell = t.deadline
               ? `<span class="${overdue?'pill pill-red':''}">${fmtDateHe(t.deadline)}</span>`
               : `<span class="cell-muted">—</span>`;
-            const isAssignee = t.freelancerId===state.currentUserId;
             const runningTimer = state.activeTimers.find(x=>x.taskId===t.id && x.freelancerId===state.currentUserId);
             let timerBtn = '';
-            if(t.status!=='done' && isAssignee){
+            if(t.status!=='done'){
               timerBtn = runningTimer
                 ? `<button class="btn btn-sm btn-danger-ghost" onclick="event.stopPropagation(); stopTimer('${runningTimer.id}')">${ICON.stop} עצור</button>`
                 : `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); startTimerForTask('${t.id}')">${ICON.play} התחל שעון</button>`;
@@ -4344,7 +4343,7 @@ function openTaskDetail(taskId){
         ${runningTimer
           ? `<div class="hint" style="margin-bottom:10px;">${ICON.clock} שעון פועל על משימה זו מאז ${new Date(runningTimer.startedAt).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}</div>
              <button class="btn btn-danger-ghost btn-block" onclick="closeModal(); stopTimer('${runningTimer.id}')">${ICON.stop} עצור שעון</button>`
-          : (isAssignee
+          : (t.status!=='done'
               ? `<button class="btn btn-primary btn-block" onclick="startTimerForTask('${t.id}')">${ICON.play} התחל שעון על המשימה הזו</button>`
               : '')}
       </div>
@@ -4368,7 +4367,8 @@ async function updateTaskStatus(taskId, status){
 
 async function startTimerForTask(taskId){
   const myActive = state.activeTimers.filter(t=>t.freelancerId===state.currentUserId);
-  if(myActive.length>=3){ toast('הגעת למגבלה של 3 שעונים פתוחים במקביל'); return; }
+  const maxConcurrent = state.timerSettings.max_concurrent_timers;
+  if(myActive.length>=maxConcurrent){ toast(`הגעת למגבלה של ${maxConcurrent} שעונים פתוחים במקביל`); return; }
   try{
     await apiCall('/time-entries/start', { method:'POST', body: JSON.stringify({ task_id: Number(taskId), source:'web' }) });
     closeModal();
@@ -4888,7 +4888,8 @@ function renderGlobalTimerWidget(){
   const wrap = document.getElementById('globalTimerWidget');
   if(!wrap) return;
   const myActive = state.activeTimers.filter(t=>t.freelancerId===state.currentUserId);
-  const canStartMore = myActive.length < 3;
+  const maxConcurrent = state.timerSettings.max_concurrent_timers;
+  const canStartMore = myActive.length < maxConcurrent;
 
   const miniCards = myActive.map(t=>{
     const c = getClient(t.clientId);
@@ -4904,14 +4905,14 @@ function renderGlobalTimerWidget(){
   }).join('');
 
   const fabLabel = !canStartMore
-    ? 'הגעת למגבלה של 3 דיווחים במקביל'
+    ? `הגעת למגבלה של ${maxConcurrent} דיווחים במקביל`
     : (myActive.length ? 'פתח דיווח עבודה נוסף' : 'התחל שעון עבודה');
 
   wrap.innerHTML = `
     ${miniCards}
     <div class="fab-wrap">
       <button class="fab-start ${canStartMore?'':'disabled'}" aria-label="${fabLabel}"
-        onclick="${canStartMore?'openQuickStartTimer()':"toast('הגעת למגבלה של 3 שעונים פתוחים במקביל — עצור שעון קיים כדי לפתוח חדש')"}">
+        onclick="${canStartMore?'openQuickStartTimer()':`toast('הגעת למגבלה של ${maxConcurrent} שעונים פתוחים במקביל — עצור שעון קיים כדי לפתוח חדש')`}">
         ${ICON.play}<span>${fabLabel}</span>
       </button>
     </div>
@@ -4968,7 +4969,8 @@ async function quickStartTimer(){
   const clientId = document.getElementById('quickClientSelect').value;
   const taskId = document.getElementById('quickTaskSelect')?.value;
   const myActive = state.activeTimers.filter(t=>t.freelancerId===state.currentUserId);
-  if(myActive.length>=3){ toast('הגעת למגבלה של 3 שעונים פתוחים במקביל'); closeModal(); return; }
+  const maxConcurrent = state.timerSettings.max_concurrent_timers;
+  if(myActive.length>=maxConcurrent){ toast(`הגעת למגבלה של ${maxConcurrent} שעונים פתוחים במקביל`); closeModal(); return; }
   try{
     await apiCall('/time-entries/start', { method:'POST', body: JSON.stringify({ project_id: clientId?Number(clientId):null, task_id: taskId?Number(taskId):null, source:'web' }) });
     closeModal();
