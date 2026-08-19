@@ -845,23 +845,93 @@ function renderGuidesBodyHtml(){
     return `<div class="empty-state">${ICON.empty}<div class="t">אין עדיין הדרכות זמינות</div></div>`;
   }
   const activeCat = guidesCache.find(c=>c.id===activeGuideCategoryId) || guidesCache[0];
+  const admin = isAdmin();
   return `
     <div class="guides-modal-body">
       <div class="guides-cats">
         ${guidesCache.map(c=>`<div class="guides-cat-item ${c.id===activeCat.id?'active':''}" onclick="selectGuideCategory(${c.id})">${c.name}</div>`).join('')}
       </div>
       <div class="guides-videos">
+        ${admin ? `<button class="btn btn-ghost btn-sm" style="align-self:flex-start;" onclick="openAddGuideVideoModal()">${ICON.plus} הוסף סרטון לחברה שלך</button>` : ''}
         ${activeCat.videos.length ? activeCat.videos.map(v=>{
           const embed = youtubeEmbedUrl(v.youtube_url);
+          const mine = admin && v.company_id!=null;
           return `<div class="guide-video-card">
             ${embed ? `<iframe src="${embed}" allowfullscreen></iframe>` : `<div class="empty-state">קישור וידאו לא תקין</div>`}
-            <div class="t">${v.title}</div>
+            <div class="t" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span>${v.title}${v.visibility==='admin'?` <span class="pill pill-gray" style="font-size:10px;">אדמין בלבד</span>`:''}</span>
+              ${mine ? `<button class="icon-btn" title="עריכה" onclick="openAddGuideVideoModal(${v.id})">${ICON.edit}</button>` : ''}
+            </div>
             ${v.description ? `<div class="d">${v.description}</div>` : ''}
           </div>`;
         }).join('') : `<div class="empty-state">אין עדיין סרטונים בקטגוריה זו</div>`}
       </div>
     </div>
   `;
+}
+
+function openAddGuideVideoModal(videoId){
+  const allVideos = guidesCache.flatMap(c=>c.videos.map(v=>({...v, category_id:c.id})));
+  const v = videoId ? allVideos.find(x=>x.id===videoId) : null;
+  openModal(`
+    <div class="modal-head"><h3>${v?'עריכת סרטון':'סרטון חדש'}</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label>קטגוריה</label>
+        <select id="gvCategory">
+          ${guidesCache.map(c=>`<option value="${c.id}" ${(v?v.category_id:activeGuideCategoryId)===c.id?'selected':''}>${c.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>כותרת</label><input type="text" id="gvTitle" value="${v?.title||''}" placeholder="שם הסרטון"></div>
+      <div class="field"><label>קישור YouTube</label><input type="text" id="gvUrl" value="${v?.youtube_url||''}" placeholder="https://www.youtube.com/watch?v=..."></div>
+      <div class="field"><label>תיאור (אופציונלי)</label><textarea id="gvDesc">${v?.description||''}</textarea></div>
+      <div class="field">
+        <label>מי יראה את הסרטון</label>
+        <select id="gvVisibility">
+          <option value="all" ${(!v||v.visibility==='all')?'selected':''}>כולם (אדמין + עובדים)</option>
+          <option value="admin" ${v?.visibility==='admin'?'selected':''}>אדמין בלבד</option>
+        </select>
+      </div>
+      <div class="hint">הסרטון יוצג רק לעובדים בחברה שלך — לא לחברות אחרות במערכת.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" onclick="saveGuideVideo(${v?v.id:'null'})">${ICON.check} שמור</button>
+      ${v?`<button class="btn btn-danger-ghost" onclick="deleteGuideVideo(${v.id})">${ICON.trash} מחיקה</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+    </div>
+  `);
+}
+
+async function saveGuideVideo(videoId){
+  const category_id = Number(document.getElementById('gvCategory').value);
+  const title = document.getElementById('gvTitle').value.trim();
+  const youtube_url = document.getElementById('gvUrl').value.trim();
+  const description = document.getElementById('gvDesc').value.trim();
+  const visibility = document.getElementById('gvVisibility').value;
+  if(!title || !youtube_url){ toast('יש למלא כותרת וקישור'); return; }
+  try{
+    if(videoId){
+      await apiCall(`/guides/videos/${videoId}`, { method:'PATCH', body: JSON.stringify({ title, youtube_url, description: description||null, visibility }) });
+    }else{
+      await apiCall('/guides/videos', { method:'POST', body: JSON.stringify({ category_id, title, youtube_url, description: description||null, visibility }) });
+    }
+    closeModal();
+    toast('הסרטון נשמר בהצלחה');
+    guidesCache = await apiCall('/guides');
+    activeGuideCategoryId = category_id;
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+async function deleteGuideVideo(videoId){
+  if(!confirm('למחוק את הסרטון?')) return;
+  try{
+    await apiCall(`/guides/videos/${videoId}`, { method:'DELETE' });
+    closeModal();
+    toast('הסרטון נמחק');
+    guidesCache = await apiCall('/guides');
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
 }
 
 function selectGuideCategory(id){
@@ -1169,6 +1239,20 @@ function clientWeeklyTrend(clientId){
 }
 function freelancerMonthMinutes(freelancerId){
   return monthEntries().filter(e=>e.freelancerId===freelancerId).reduce((s,e)=>s+e.minutes,0);
+}
+function freelancerWeeklyTrend(freelancerId){
+  const weeks = [];
+  for(let i=5;i>=0;i--){
+    const end = new Date(); end.setDate(end.getDate() - i*7);
+    const start = new Date(end); start.setDate(start.getDate()-6);
+    const mins = state.entries.filter(e=>{
+      if(e.freelancerId!==freelancerId) return false;
+      const d = new Date(e.date+'T00:00:00');
+      return d>=start && d<=end;
+    }).reduce((s,e)=>s+e.minutes,0);
+    weeks.push({ label: `${start.getDate()}/${start.getMonth()+1}`, mins });
+  }
+  return weeks;
 }
 function totalMonthMinutes(){
   return monthEntries().reduce((s,e)=>s+e.minutes,0);
@@ -3333,7 +3417,49 @@ function renderClientDashboardTiles(c){
   `;
 }
 
-/* ---- Filterable time-entries section shown inside a client's card, both admin and employee ---- */
+function renderFreelancerDashboardTiles(f){
+  if(!f) return '';
+  const mins = freelancerMonthMinutes(f.id);
+  const weeks = freelancerWeeklyTrend(f.id);
+  const maxWeek = Math.max(1, ...weeks.map(w=>w.mins));
+
+  return `
+    <div class="grid grid-3" style="margin-bottom:16px;">
+      <div class="stat-card">
+        <div class="label"><span class="stat-icon" style="background:var(--green-soft);color:var(--green);">${ICON.freelancers}</span>פרטי עובד</div>
+        <div class="value" style="font-size:15px;">${f.name}</div>
+        <div class="foot">${f.active===false?'לא פעיל':'פעיל'} · ${f.role==='admin'?'אדמין':'עובד'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label"><span class="stat-icon" style="background:var(--green-soft);color:var(--green);">${ICON.clock}</span>שעות שעבד החודש</div>
+        <div class="value">${fmtHoursShort(mins)}</div>
+        <div class="foot">${fmtMinutes(mins)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label"><span class="stat-icon" style="background:var(--green-soft);color:var(--green);">${ICON.reports}</span>מגמת שעות — 6 שבועות אחרונים</div>
+        <div class="bars" style="height:60px; margin-top:6px;">
+          ${weeks.map(w=>`
+            <div class="bar-col">
+              <div class="bar-wrap"><div class="bar" style="height:${Math.max(4,(w.mins/maxWeek*100))}%;"></div></div>
+              <div class="bar-label" style="font-size:9.5px;">${w.label}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-head"><h3>דיווחי עבודה</h3></div>
+      <div class="panel-pad" style="padding-top:0;">
+        <div id="clientReportsSection">${renderClientReportsSection()}</div>
+      </div>
+    </div>
+  `;
+}
+
+/* ---- Filterable time-entries section, reused inside both the client card and the
+   employee card (admin view) -- names still say "client" since it started there, but
+   clientCardFilters.freelancerId/.clientId work the same regardless of which card
+   seeded them. ---- */
 let clientCardFilters = { freelancerId:'', clientId:'', from:'', to:'' };
 
 function renderClientReportsSection(){
@@ -4260,10 +4386,12 @@ function renderFreelancersPage(){
 function openFreelancerForm(freelancerId){
   const f = freelancerId ? getFreelancer(freelancerId) : null;
   pendingEmployeeFieldFiles = {};
+  clientCardFilters = { freelancerId: f?String(f.id):'', clientId:'', from:'', to:'' };
   const activeEmployeeFields = state.employeeFields.filter(ef=>ef.active);
   openModal(`
     <div class="modal-head"><h3>${f?'עריכת עובד':'עובד חדש'}</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
     <div class="modal-body">
+      ${f?renderFreelancerDashboardTiles(f):''}
       <div class="field"><label>שם מלא</label><input type="text" id="frName" value="${f?.name||''}" placeholder="לדוגמה: ישראל ישראלי"></div>
       <div class="field"><label>אימייל</label><input type="email" id="frEmail" value="${f?.email||''}" placeholder="name@example.com"></div>
       <div class="field"><label>נייד</label><input type="text" id="frPhone" value="${f?.phone||''}" placeholder="050-0000000"></div>

@@ -8,8 +8,12 @@ router.use(authenticate, requireOwner);
 
 const VIDEO_VISIBILITIES = ['admin', 'all'];
 
+// company_id IS NULL throughout this file -- these routes manage only the global
+// library. Company-specific videos (added by a company's own admin, migration 036)
+// live in the same table but are managed exclusively via routes/guides.js, scoped to
+// that admin's own company_id, so they never show up or get touched here.
 async function withVideos(categories) {
-  const { rows: videos } = await pool.query('SELECT * FROM guide_videos ORDER BY sort_order, created_at');
+  const { rows: videos } = await pool.query('SELECT * FROM guide_videos WHERE company_id IS NULL ORDER BY sort_order, created_at');
   return categories.map((c) => ({ ...c, videos: videos.filter((v) => v.category_id === c.id) }));
 }
 
@@ -159,7 +163,7 @@ router.patch('/videos/:id', async (req, res) => {
        category_id = COALESCE($1, category_id), title = COALESCE($2, title),
        description = COALESCE($3, description), youtube_url = COALESCE($4, youtube_url),
        sort_order = COALESCE($5, sort_order), visibility = COALESCE($6, visibility)
-     WHERE id = $7 RETURNING *`,
+     WHERE id = $7 AND company_id IS NULL RETURNING *`,
     [category_id, title, description, youtube_url, sort_order, visibility, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'not_found' });
@@ -167,7 +171,7 @@ router.patch('/videos/:id', async (req, res) => {
 });
 
 router.delete('/videos/:id', async (req, res) => {
-  const { rowCount } = await pool.query('DELETE FROM guide_videos WHERE id = $1', [req.params.id]);
+  const { rowCount } = await pool.query('DELETE FROM guide_videos WHERE id = $1 AND company_id IS NULL', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'not_found' });
   res.status(204).end();
 });
