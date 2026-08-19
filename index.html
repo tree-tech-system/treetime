@@ -4278,7 +4278,12 @@ function renderTasksPage(){
               <td><span class="pill ${TASK_STATUS_PILL[t.status]}">${TASK_STATUS_LABEL[t.status]}</span></td>
               <td style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${t.description}">${t.description}</td>
               <td>${c?clientDisplayName(c):'<span class="cell-muted">—</span>'}</td>
-              ${admin?`<td>${f?.name||'<span class="cell-muted">לא הוקצה</span>'}</td>`:''}
+              ${admin?`<td onclick="event.stopPropagation();">
+                <select class="btn-sm" style="max-width:140px;" onchange="assignTaskEmployee('${t.id}', this.value)">
+                  <option value="">לא הוקצה</option>
+                  ${state.freelancers.map(fr=>`<option value="${fr.id}" ${t.freelancerId===fr.id?'selected':''}>${fr.name}</option>`).join('')}
+                </select>
+              </td>`:''}
               <td>${deadlineCell}</td>
               <td style="display:flex; gap:6px;">
                 ${timerBtn}
@@ -4324,7 +4329,14 @@ function openTaskDetail(taskId){
       </div>
       <div class="field-row" style="margin-top:14px;">
         <div class="field"><label>לקוח</label><div>${c?clientDisplayName(c):'<span class="cell-muted">לא מקושר</span>'}</div></div>
-        <div class="field"><label>עובד מקושר</label><div>${f?.name||'<span class="cell-muted">לא הוקצה</span>'}</div></div>
+        <div class="field"><label>עובד מקושר</label>
+          ${admin
+            ? `<select id="taskAssigneeSelect" onchange="assignTaskEmployee('${t.id}', this.value)">
+                 <option value="">לא הוקצה</option>
+                 ${state.freelancers.map(fr=>`<option value="${fr.id}" ${t.freelancerId===fr.id?'selected':''}>${fr.name}</option>`).join('')}
+               </select>`
+            : `<div>${f?.name||'<span class="cell-muted">לא הוקצה</span>'}</div>`}
+        </div>
       </div>
       <div class="field-row">
         <div class="field"><label>דדליין</label><div>${t.deadline?fmtDateHe(t.deadline):'<span class="cell-muted">לא הוגדר</span>'}</div></div>
@@ -4352,6 +4364,18 @@ function openTaskDetail(taskId){
       <button class="btn btn-ghost" onclick="closeModal()">סגור</button>
     </div>
   `);
+}
+
+async function assignTaskEmployee(taskId, employeeId){
+  try{
+    await apiCall(`/tasks/${taskId}`, { method:'PATCH', body: JSON.stringify({ employee_id: employeeId ? Number(employeeId) : null }) });
+    await refreshData();
+    toast('העובד המקושר עודכן');
+    // If the task-detail modal is open on this task, re-render it so the timer
+    // button reflects the new assignee immediately instead of waiting for a reopen.
+    if(document.getElementById('taskAssigneeSelect')) openTaskDetail(taskId);
+    else renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
 }
 
 async function updateTaskStatus(taskId, status){
