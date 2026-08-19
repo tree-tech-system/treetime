@@ -3408,12 +3408,6 @@ function renderClientDashboardTiles(c){
         </div>
       </div>
     </div>
-    <div class="panel" style="margin-bottom:16px;">
-      <div class="panel-head"><h3>דיווחי עבודה</h3></div>
-      <div class="panel-pad" style="padding-top:0;">
-        <div id="clientReportsSection">${renderClientReportsSection()}</div>
-      </div>
-    </div>
   `;
 }
 
@@ -3447,85 +3441,11 @@ function renderFreelancerDashboardTiles(f){
         </div>
       </div>
     </div>
-    <div class="panel" style="margin-bottom:16px;">
-      <div class="panel-head"><h3>דיווחי עבודה</h3></div>
-      <div class="panel-pad" style="padding-top:0;">
-        <div id="clientReportsSection">${renderClientReportsSection()}</div>
-      </div>
-    </div>
   `;
-}
-
-/* ---- Filterable time-entries section, reused inside both the client card and the
-   employee card (admin view) -- names still say "client" since it started there, but
-   clientCardFilters.freelancerId/.clientId work the same regardless of which card
-   seeded them. ---- */
-let clientCardFilters = { freelancerId:'', clientId:'', from:'', to:'' };
-
-function renderClientReportsSection(){
-  const admin = isAdmin();
-  const scope = admin ? state.entries : state.entries.filter(e=>e.freelancerId===state.currentUserId);
-  const filtered = scope.filter(e=>{
-    if(clientCardFilters.freelancerId && e.freelancerId!==clientCardFilters.freelancerId) return false;
-    if(clientCardFilters.clientId && e.clientId!==clientCardFilters.clientId) return false;
-    if(clientCardFilters.from && e.date<clientCardFilters.from) return false;
-    if(clientCardFilters.to && e.date>clientCardFilters.to) return false;
-    return true;
-  }).sort((a,b)=> (b.date+b.start).localeCompare(a.date+a.start));
-
-  const clientOptions = admin ? state.clients : clientsForFreelancer(state.currentUserId);
-
-  return `
-    <div class="filters" style="margin-bottom:14px;">
-      ${admin ? `<select id="ccFreelancer" onchange="onClientReportsFilterChange()">
-        <option value="">כל העובדים</option>
-        ${state.freelancers.map(f=>`<option value="${f.id}" ${clientCardFilters.freelancerId===f.id?'selected':''}>${f.name}</option>`).join('')}
-      </select>` : ''}
-      <select id="ccClient" onchange="onClientReportsFilterChange()">
-        <option value="">כל הלקוחות</option>
-        ${clientOptions.map(c=>`<option value="${c.id}" ${clientCardFilters.clientId===c.id?'selected':''}>${clientDisplayName(c)}</option>`).join('')}
-      </select>
-      <input type="date" id="ccFrom" value="${clientCardFilters.from}" onchange="onClientReportsFilterChange()">
-      <input type="date" id="ccTo" value="${clientCardFilters.to}" onchange="onClientReportsFilterChange()">
-      <button class="btn btn-ghost btn-sm" onclick="clearClientReportsFilters()">נקה סינון</button>
-      ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openSaveListWidgetModal('time_entries', {employee_id: clientCardFilters.freelancerId||undefined, project_id: clientCardFilters.clientId||undefined, date_from: clientCardFilters.from||undefined, date_to: clientCardFilters.to||undefined})">${ICON.plus} שמור תצוגה כ-widget</button>` : ''}
-    </div>
-    <table>
-      <thead><tr>${admin?'<th>עובד</th>':''}<th>תאריך</th><th>לקוח</th><th>משך</th></tr></thead>
-      <tbody>
-        ${filtered.map(e=>{
-          const f = getFreelancer(e.freelancerId), c = getClient(e.clientId);
-          return `<tr>
-            ${admin?`<td>${f?.name||'—'}</td>`:''}
-            <td class="cell-muted">${fmtDateHe(e.date)}</td>
-            <td>${c?clientDisplayName(c):'—'}</td>
-            <td class="mono">${fmtMinutes(e.minutes)}</td>
-          </tr>`;
-        }).join('') || `<tr class="empty-row"><td colspan="${admin?4:3}">לא נמצאו דיווחים תואמים לסינון</td></tr>`}
-      </tbody>
-    </table>
-  `;
-}
-
-function onClientReportsFilterChange(){
-  const fF = document.getElementById('ccFreelancer');
-  clientCardFilters = {
-    freelancerId: fF ? fF.value : '',
-    clientId: document.getElementById('ccClient').value,
-    from: document.getElementById('ccFrom').value,
-    to: document.getElementById('ccTo').value,
-  };
-  document.getElementById('clientReportsSection').innerHTML = renderClientReportsSection();
-}
-
-function clearClientReportsFilters(){
-  clientCardFilters = { freelancerId:'', clientId:'', from:'', to:'' };
-  document.getElementById('clientReportsSection').innerHTML = renderClientReportsSection();
 }
 
 function openClientForm(clientId){
   const c = clientId ? getClient(clientId) : null;
-  clientCardFilters = { freelancerId:'', clientId: clientId?String(clientId):'', from:'', to:'' };
 
   if(!isAdmin()){
     openModal(`
@@ -4386,7 +4306,6 @@ function renderFreelancersPage(){
 function openFreelancerForm(freelancerId){
   const f = freelancerId ? getFreelancer(freelancerId) : null;
   pendingEmployeeFieldFiles = {};
-  clientCardFilters = { freelancerId: f?String(f.id):'', clientId:'', from:'', to:'' };
   const activeEmployeeFields = state.employeeFields.filter(ef=>ef.active);
   openModal(`
     <div class="modal-head"><h3>${f?'עריכת עובד':'עובד חדש'}</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
