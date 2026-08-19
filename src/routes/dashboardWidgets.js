@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { evaluateKpi, evaluateClientsUsage, evaluateEmployeesActivity, listDataSources, ValidationError } = require('../lib/kpiEngine');
+const { evaluateKpi, evaluateChart, evaluateClientsUsage, evaluateEmployeesActivity, listDataSources, ValidationError } = require('../lib/kpiEngine');
 
 const router = express.Router();
 router.use(authenticate);
@@ -49,6 +49,38 @@ router.post('/kpi/preview', async (req, res) => {
   try {
     const value = await evaluateKpi(companyIdOf(req), req.body);
     res.json({ value });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: 'validation_error', message: err.message });
+    throw err;
+  }
+});
+
+/**
+ * @openapi
+ * /api/dashboard-widgets/chart/preview:
+ *   post:
+ *     tags: [Dashboard Widgets]
+ *     summary: Evaluate a chart config without saving it, for live preview while building
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [data_source, group_by]
+ *             properties:
+ *               data_source: { type: string, enum: [time_entries, projects, employees, tasks, edit_requests] }
+ *               group_by: { type: string }
+ *               aggregation: { type: string, enum: [sum, avg, count, min, max] }
+ *               field: { type: string }
+ *               filters: { type: object }
+ *     responses:
+ *       200: { description: One {label, value} row per group }
+ */
+router.post('/chart/preview', async (req, res) => {
+  try {
+    const data = await evaluateChart(companyIdOf(req), req.body);
+    res.json({ data });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: 'validation_error', message: err.message });
     throw err;
@@ -132,11 +164,13 @@ router.get('/', async (req, res) => {
   );
   const withValues = await Promise.all(
     rows.map(async (w) => {
-      if (w.type !== 'kpi') return w;
       try {
-        return { ...w, value: await evaluateKpi(companyIdOf(req), w.config) };
+        if (w.type === 'kpi') return { ...w, value: await evaluateKpi(companyIdOf(req), w.config) };
+        if (w.type === 'chart') return { ...w, data: await evaluateChart(companyIdOf(req), w.config) };
+        return w;
       } catch {
-        return { ...w, value: null }; // config referenced something no longer valid; widget still renders, just shows no value
+        // config referenced something no longer valid; widget still renders, just shows no data
+        return w.type === 'kpi' ? { ...w, value: null } : w.type === 'chart' ? { ...w, data: [] } : w;
       }
     })
   );
@@ -145,12 +179,12 @@ router.get('/', async (req, res) => {
 
 router.post('/', requireRole('admin'), async (req, res) => {
   const { type, title, config } = req.body;
-  if (!['kpi', 'list'].includes(type)) return res.status(400).json({ error: 'validation_error', message: 'type must be kpi or list' });
+  if (!['kpi', 'list', 'chart'].includes(type)) return res.status(400).json({ error: 'validation_error', message: 'type must be kpi, list, or chart' });
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'validation_error', message: 'title is required' });
 
-  if (type === 'kpi') {
+  if (type === 'kpi' || type === 'chart') {
     try {
-      await evaluateKpi(companyIdOf(req), config);
+      await (type === 'kpi' ? evaluateKpi(companyIdOf(req), config) : evaluateChart(companyIdOf(req), config));
     } catch (err) {
       if (err instanceof ValidationError) return res.status(400).json({ error: 'validation_error', message: err.message });
       throw err;
@@ -223,9 +257,9 @@ router.patch('/:id', requireRole('admin'), async (req, res) => {
   const existing = await pool.query('SELECT type FROM dashboard_widgets WHERE id = $1 AND company_id = $2', [req.params.id, companyIdOf(req)]);
   if (!existing.rows[0]) return res.status(404).json({ error: 'not_found' });
 
-  if (config !== undefined && existing.rows[0].type === 'kpi') {
+  if (config !== undefined && (existing.rows[0].type === 'kpi' || existing.rows[0].type === 'chart')) {
     try {
-      await evaluateKpi(companyIdOf(req), config);
+      await (existing.rows[0].type === 'kpi' ? evaluateKpi(companyIdOf(req), config) : evaluateChart(companyIdOf(req), config));
     } catch (err) {
       if (err instanceof ValidationError) return res.status(400).json({ error: 'validation_error', message: err.message });
       throw err;

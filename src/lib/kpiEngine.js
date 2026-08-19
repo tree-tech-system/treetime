@@ -21,6 +21,17 @@ const DATA_SOURCES = {
       task_id: { column: 'task_id', op: '=' },
       status: { special: 'time_entry_status' }, // open | completed | all -- overrides baseWhere
     },
+    // For the chart widget: a categorical field to GROUP BY. `join` resolves an
+    // id column to a human label from another table instead of showing raw ids;
+    // `special` covers groupings a plain column can't express (open/completed
+    // isn't a stored column). Grouping by status also needs to see open entries,
+    // so it skips the table's default baseWhere the same way the status *filter*
+    // already does above (see statusOverride in evaluateChart).
+    groupFields: {
+      employee_id: { column: 'employee_id', join: { table: 'employees', labelExpr: 'g.full_name' }, emptyLabel: 'לא ידוע', label: 'עובד' },
+      project_id: { column: 'project_id', join: { table: 'projects', labelExpr: 'COALESCE(g.business_name, g.name)' }, emptyLabel: 'ללא לקוח', label: 'לקוח' },
+      status: { special: 'time_entries_status_label', label: 'מצב (פתוח/הושלם)' },
+    },
   },
   projects: {
     table: 'projects',
@@ -32,6 +43,10 @@ const DATA_SOURCES = {
       date_from: { column: 'created_at', op: '>=' },
       date_to: { column: 'created_at', op: '<=' },
       payment_method: { column: 'payment_method', op: '=' },
+    },
+    groupFields: {
+      archived: { special: 'projects_archived_label', label: 'סטטוס פעיל/ארכיון' },
+      payment_method: { column: 'payment_method', label: 'שיטת תשלום' },
     },
   },
   employees: {
@@ -45,6 +60,10 @@ const DATA_SOURCES = {
       role: { column: 'role', op: '=' },
       active: { column: 'active', op: '=' },
     },
+    groupFields: {
+      role: { column: 'role', label: 'תפקיד' },
+      active: { special: 'employees_active_label', label: 'סטטוס פעיל' },
+    },
   },
   tasks: {
     table: 'tasks',
@@ -55,6 +74,25 @@ const DATA_SOURCES = {
       status: { column: 'status', op: '=' },
       employee_id: { column: 'employee_id', op: '=' },
       project_id: { column: 'project_id', op: '=' },
+    },
+    groupFields: {
+      status: { column: 'status', label: 'סטטוס' },
+      employee_id: { column: 'employee_id', join: { table: 'employees', labelExpr: 'g.full_name' }, emptyLabel: 'לא הוקצה', label: 'עובד' },
+      project_id: { column: 'project_id', join: { table: 'projects', labelExpr: 'COALESCE(g.business_name, g.name)' }, emptyLabel: 'ללא לקוח', label: 'לקוח' },
+    },
+  },
+  edit_requests: {
+    table: 'edit_requests',
+    numericFields: {},
+    filters: {
+      date_from: { column: 'requested_at', op: '>=' },
+      date_to: { column: 'requested_at', op: '<=' },
+      status: { column: 'status', op: '=' },
+      employee_id: { column: 'employee_id', op: '=' },
+    },
+    groupFields: {
+      status: { column: 'status', label: 'סטטוס' },
+      employee_id: { column: 'employee_id', join: { table: 'employees', labelExpr: 'g.full_name' }, emptyLabel: 'לא ידוע', label: 'עובד' },
     },
   },
 };
@@ -184,6 +222,73 @@ async function evaluateEmployeesActivity(companyId, { dateFrom, dateTo } = {}) {
   return rows.map((r) => ({ id: r.id, name: r.full_name, hours_logged: Number(r.hours_logged), last_entry_at: r.last_entry_at }));
 }
 
+function buildGroupExpr(groupSpec) {
+  if (groupSpec.special === 'projects_archived_label') return `CASE WHEN t.archived THEN 'בארכיון' ELSE 'פעיל' END`;
+  if (groupSpec.special === 'employees_active_label') return `CASE WHEN t.active THEN 'פעיל' ELSE 'לא פעיל' END`;
+  if (groupSpec.special === 'time_entries_status_label') return `CASE WHEN t.ended_at IS NULL THEN 'פתוח' ELSE 'הושלם' END`;
+  if (groupSpec.join) return `COALESCE(${groupSpec.join.labelExpr}, '${groupSpec.emptyLabel || 'ללא'}')`;
+  return `t.${groupSpec.column}`;
+}
+
+// Same allowlist and parameterization discipline as evaluateSimpleKpi above, but
+// grouped: returns one {label, value} row per distinct value of an admin-chosen
+// categorical field instead of a single scalar. Powers the dashboard "chart" widget.
+async function evaluateChart(companyId, config) {
+  const { data_source, group_by, aggregation = 'count', field, filters = {} } = config || {};
+  const source = DATA_SOURCES[data_source];
+  if (!source) throw new ValidationError(`Unknown data_source: ${data_source}`);
+  const groupSpec = source.groupFields && source.groupFields[group_by];
+  if (!groupSpec) throw new ValidationError(`"${group_by}" is not a valid group-by field for ${data_source}`);
+  if (!AGGREGATIONS.includes(aggregation)) throw new ValidationError(`Unknown aggregation: ${aggregation}`);
+  if (aggregation !== 'count' && !source.numericFields[field]) {
+    throw new ValidationError(`"${field}" is not a valid numeric field for ${data_source}`);
+  }
+  for (const key of Object.keys(filters || {})) {
+    if (!source.filters[key]) throw new ValidationError(`Unknown filter for ${data_source}: ${key}`);
+  }
+
+  const params = [companyId];
+  const filterClauses = [];
+  // Grouping by the computed open/completed label needs to see open entries too,
+  // so it skips the default baseWhere exactly like an explicit status filter does.
+  let statusOverride = groupSpec.special === 'time_entries_status_label';
+
+  for (const [key, rawValue] of Object.entries(filters)) {
+    if (rawValue === undefined || rawValue === null || rawValue === '') continue;
+    const f = source.filters[key];
+    if (f.special === 'time_entry_status') {
+      statusOverride = true;
+      if (!TIME_ENTRY_STATUSES.includes(rawValue)) throw new ValidationError(`Invalid status filter value: ${rawValue}`);
+      if (rawValue === 'open') filterClauses.push('t.ended_at IS NULL');
+      else if (rawValue === 'completed') filterClauses.push('t.ended_at IS NOT NULL');
+      continue;
+    }
+    const value = (key === 'date_from' || key === 'date_to') ? resolveDateValue(rawValue) : rawValue;
+    params.push(value);
+    filterClauses.push(`t.${f.column} ${f.op} $${params.length}`);
+  }
+
+  const whereClauses = ['t.company_id = $1'];
+  if (source.baseWhere && !statusOverride) whereClauses.push('t.' + source.baseWhere);
+  whereClauses.push(...filterClauses);
+
+  const selectExpr = aggregation === 'count' ? 'COUNT(*)' : `${aggregation.toUpperCase()}(${source.numericFields[field]})`;
+  const groupExpr = buildGroupExpr(groupSpec);
+  const joinClause = groupSpec.join ? `LEFT JOIN ${groupSpec.join.table} g ON g.id = t.${groupSpec.column}` : '';
+
+  const sql = `
+    SELECT ${groupExpr} AS label, ${selectExpr} AS value
+    FROM ${source.table} t
+    ${joinClause}
+    WHERE ${whereClauses.join(' AND ')}
+    GROUP BY ${groupExpr}
+    ORDER BY value DESC
+    LIMIT 20
+  `;
+  const { rows } = await pool.query(sql, params);
+  return rows.map((r) => ({ label: r.label, value: Number(r.value) || 0 }));
+}
+
 async function evaluateKpi(companyId, config) {
   const { data_source, filters = {} } = config || {};
 
@@ -206,7 +311,7 @@ function listDataSources() {
   const simple = Object.fromEntries(
     Object.entries(DATA_SOURCES).map(([key, s]) => [
       key,
-      { numericFields: Object.keys(s.numericFields), filters: Object.keys(s.filters) },
+      { numericFields: Object.keys(s.numericFields), filters: Object.keys(s.filters), groupFields: Object.keys(s.groupFields || {}) },
     ])
   );
   return { ...simple, clients_usage: { relation: true }, employees_activity: { relation: true } };
@@ -214,6 +319,7 @@ function listDataSources() {
 
 module.exports = {
   evaluateKpi,
+  evaluateChart,
   evaluateClientsUsage,
   evaluateEmployeesActivity,
   validateConfig,
