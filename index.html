@@ -1727,6 +1727,44 @@ const KPI_NUMERIC_FIELDS = {
   tasks: [],
 };
 
+// Categorical group-by fields per data source, for the chart-widget builder.
+// Mirrors src/lib/kpiEngine.js's groupFields allowlist -- values here are only
+// used to build the dropdown; the backend re-validates everything server-side.
+const CHART_GROUP_FIELDS = {
+  time_entries: [
+    { value:'employee_id', label:'עובד' },
+    { value:'project_id', label:'לקוח' },
+    { value:'status', label:'מצב (פתוח/הושלם)' },
+  ],
+  projects: [
+    { value:'archived', label:'סטטוס פעיל/ארכיון' },
+    { value:'payment_method', label:'שיטת תשלום' },
+  ],
+  employees: [
+    { value:'role', label:'תפקיד' },
+    { value:'active', label:'סטטוס פעיל' },
+  ],
+  tasks: [
+    { value:'status', label:'סטטוס' },
+    { value:'employee_id', label:'עובד מוקצה' },
+    { value:'project_id', label:'לקוח' },
+  ],
+  edit_requests: [
+    { value:'status', label:'סטטוס' },
+    { value:'employee_id', label:'עובד' },
+  ],
+};
+
+// Raw group values that come back untranslated from the server (payment_method,
+// role, edit_requests.status, task status) get a Hebrew label here at render
+// time. Groupings the backend already computes as Hebrew text (archived/active/
+// time_entries status -- see kpiEngine's buildGroupExpr) don't need an entry.
+const CHART_VALUE_LABELS = {
+  'projects:payment_method': { hourly:'שעתי', hours_bank:'בנק שעות' },
+  'employees:role': { admin:'אדמין', employee:'עובד' },
+  'edit_requests:status': { pending:'ממתין', approved:'אושר', rejected:'נדחה' },
+};
+
 const LIST_SOURCE_LABELS = {
   time_entries: 'דיווחי עבודה', tasks: 'משימות', projects: 'לקוחות',
   clients_usage: 'מכסת שעות ללקוח', employees_activity: 'פעילות עובדים',
@@ -1805,6 +1843,10 @@ function openEditListWidgetModal(id){
   const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
   if(w) openAddListWidgetModal(w);
 }
+function openEditChartWidgetModal(id){
+  const w = (state.dashboardWidgets||[]).find(x=>x.id===id);
+  if(w) openAddChartWidgetModal(w);
+}
 
 function renderOneDashboardWidget(w, admin){
   const deleteButton = admin ? `<button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>` : '';
@@ -1831,6 +1873,21 @@ function renderOneDashboardWidget(w, admin){
         ${resizeHandles}
       </div>`;
   }
+  if(w.type==='chart'){
+    const sizeStyle = (w.width_px?`width:${w.width_px}px; flex:0 0 auto;`:'flex:1 1 320px;') + (w.height_px?`height:${w.height_px}px; overflow:auto;`:'');
+    return `
+      <div class="panel dashboard-widget" data-widget-id="${w.id}" ${draggableAttr} style="padding:14px 16px; position:relative; box-sizing:border-box; ${sizeStyle}">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap; gap:6px;">
+          <div style="font-weight:700;">${w.title}</div>
+          <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">
+            ${admin?`<button class="icon-btn" title="ערוך" onclick="openEditChartWidgetModal(${w.id})">${ICON.edit}</button>`:''}
+            ${deleteButton}
+          </div>
+        </div>
+        ${renderChartBars(w.config, w.data)}
+        ${resizeHandles}
+      </div>`;
+  }
   const sizeStyle = (w.width_px?`width:${w.width_px}px; flex:0 0 auto;`:'flex:1 1 100%;') + (w.height_px?`height:${w.height_px}px; overflow:auto;`:'');
   return `
     <div class="panel dashboard-widget" data-widget-id="${w.id}" ${draggableAttr} style="padding:14px 16px; position:relative; box-sizing:border-box; ${sizeStyle}">
@@ -1844,6 +1901,30 @@ function renderOneDashboardWidget(w, admin){
       <div id="widgetList-${w.id}" class="cell-muted">טוען...</div>
       ${resizeHandles}
     </div>`;
+}
+
+// Shared renderer for chart-widget bars, used both on the live dashboard (with
+// server-computed w.data) and inside the builder's preview (with fresh data
+// from /chart/preview) so the two never drift visually.
+function chartValueLabel(config, rawLabel){
+  if(rawLabel===null || rawLabel===undefined || rawLabel==='') return 'ללא';
+  if(config.data_source==='tasks' && config.group_by==='status') return TASK_STATUS_LABEL[rawLabel] || rawLabel;
+  const map = CHART_VALUE_LABELS[`${config.data_source}:${config.group_by}`];
+  return (map && map[rawLabel]) || rawLabel;
+}
+function renderChartBars(config, data){
+  if(!data || !data.length) return `<div class="cell-muted">אין נתונים להצגה</div>`;
+  const max = Math.max(1, ...data.map(d=>d.value));
+  return data.map(d=>{
+    const pct = Math.round((d.value/max)*100);
+    const valueText = Number.isInteger(d.value) ? d.value : d.value.toFixed(1);
+    return `<div style="margin-bottom:9px;">
+      <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:3px;">
+        <span>${chartValueLabel(config, d.label)}</span><span style="font-weight:700;">${valueText}</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:var(--green);"></div></div>
+    </div>`;
+  }).join('');
 }
 
 function wireDashboardWidgetInteractions(){
@@ -2100,6 +2181,11 @@ function openAddWidgetTypeModal(){
           <div style="font-weight:700;">דשבורד רשימה</div>
           <div class="hint" style="margin-top:4px;">טבלה ממוינת עם העמודות שתבחר</div>
         </div>
+        <div class="panel widget-type-choice" data-type="chart" onclick="selectWidgetType('chart')" style="flex:1; padding:18px; text-align:center; cursor:pointer; border:2px solid var(--border);">
+          <div style="font-size:28px; margin-bottom:8px;">📊</div>
+          <div style="font-weight:700;">דשבורד גרף</div>
+          <div class="hint" style="margin-top:4px;">התפלגות מקובצת לפי שדה — למשל משימות לפי סטטוס</div>
+        </div>
       </div>
     </div>
     <div class="modal-foot">
@@ -2121,6 +2207,7 @@ function selectWidgetType(type){
 function goToWidgetTypeStep2(){
   if(selectedWidgetType==='kpi') openAddKpiWidgetModal();
   else if(selectedWidgetType==='list') openAddListWidgetModal();
+  else if(selectedWidgetType==='chart') openAddChartWidgetModal();
 }
 
 // Step 2 for list widgets: area/source, columns to show, filters, preview, save.
@@ -2430,6 +2517,196 @@ async function saveKpiWidget(){
       await apiCall(`/dashboard-widgets/${editingWidgetId}`, { method:'PATCH', body: JSON.stringify({ title, config: collectKpiConfig() }) });
     } else {
       await apiCall('/dashboard-widgets', { method:'POST', body: JSON.stringify({ type:'kpi', title, config: collectKpiConfig() }) });
+    }
+    closeModal();
+    toast(editingWidgetId ? 'העדכון נשמר' : 'נוסף לדשבורד');
+    await refreshData();
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+function openAddChartWidgetModal(existingWidget){
+  editingWidgetId = existingWidget ? existingWidget.id : null;
+  const prefill = existingWidget ? existingWidget.config : null;
+  openModal(`
+    <div class="modal-head"><h3>${existingWidget?'עריכת':'הוסף'} גרף ${existingWidget?'':'לדשבורד'}</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>כותרת</label><input type="text" id="chartTitle" placeholder="לדוגמה: משימות לפי סטטוס" value="${existingWidget?existingWidget.title.replace(/"/g,'&quot;'):''}"></div>
+      <div class="field-row">
+        <div class="field">
+          <label>מקור נתונים</label>
+          <select id="chartSource" onchange="onChartSourceChange()">
+            <option value="projects">לקוחות</option>
+            <option value="tasks">משימות</option>
+            <option value="time_entries">דיווחי עבודה</option>
+            <option value="edit_requests">בקשות לעריכה</option>
+            <option value="employees">עובדים</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>קיבוץ לפי</label>
+          <select id="chartGroupBy"></select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>סוג חישוב</label>
+          <select id="chartAgg" onchange="onChartAggChange()">
+            <option value="count">ספירה</option>
+            <option value="sum">סכום</option>
+            <option value="avg">ממוצע</option>
+            <option value="min">מינימום</option>
+            <option value="max">מקסימום</option>
+          </select>
+        </div>
+        <div class="field" id="chartFieldWrap">
+          <label>שדה לחישוב</label>
+          <select id="chartField"></select>
+        </div>
+      </div>
+
+      <div class="hint" style="margin:10px 0 4px;">סינון (הכל אופציונלי):</div>
+      <div class="field-row">
+        <div class="field"><label>מתאריך</label><input type="date" id="chartFrom"></div>
+        <div class="field"><label>עד תאריך</label><input type="date" id="chartTo"></div>
+      </div>
+      <div class="field-row" data-chart-source-only="time_entries,tasks,edit_requests">
+        <div class="field">
+          <label>עובד</label>
+          <select id="chartEmployee"><option value="">הכל</option>${state.freelancers.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}</select>
+        </div>
+        <div class="field" data-chart-source-only="time_entries,tasks">
+          <label>לקוח</label>
+          <select id="chartProject"><option value="">הכל</option>${state.clients.map(c=>`<option value="${c.id}">${clientDisplayName(c)}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="field" data-chart-source-only="time_entries">
+        <label>מצב</label>
+        <select id="chartTimeEntryStatus"><option value="">הכל</option><option value="open">פתוחים בלבד</option><option value="completed">הושלמו בלבד</option></select>
+      </div>
+      <div class="field" data-chart-source-only="tasks">
+        <label>סטטוס משימה</label>
+        <select id="chartStatus"><option value="">הכל</option>${Object.entries(TASK_STATUS_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+      </div>
+      <div class="field" data-chart-source-only="edit_requests">
+        <label>סטטוס בקשה</label>
+        <select id="chartEditReqStatus"><option value="">הכל</option><option value="pending">ממתין</option><option value="approved">אושר</option><option value="rejected">נדחה</option></select>
+      </div>
+      <div class="field" data-chart-source-only="projects">
+        <label>אמצעי תשלום</label>
+        <select id="chartPaymentMethod"><option value="">הכל</option><option value="hourly">שעתי</option><option value="hours_bank">בנק שעות</option></select>
+      </div>
+      <div class="field" data-chart-source-only="employees">
+        <label>תפקיד</label>
+        <select id="chartRole"><option value="">הכל</option><option value="admin">אדמין</option><option value="employee">עובד</option></select>
+      </div>
+
+      <div id="chartPreviewResult" style="margin-top:14px;"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="previewChartWidget()">בדוק תצוגה מקדימה</button>
+      <button class="btn btn-primary" onclick="saveChartWidget()">${ICON.check} שמור ל-דשבורד</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
+    </div>
+  `);
+  onChartSourceChange();
+  if(prefill) applyChartPrefill(prefill);
+}
+
+function applyChartPrefill(config){
+  document.getElementById('chartSource').value = config.data_source;
+  onChartSourceChange();
+  if(config.group_by) document.getElementById('chartGroupBy').value = config.group_by;
+  if(config.aggregation) document.getElementById('chartAgg').value = config.aggregation;
+  onChartAggChange();
+  if(config.field) document.getElementById('chartField').value = config.field;
+  const f = config.filters || {};
+  if(f.date_from) document.getElementById('chartFrom').value = f.date_from;
+  if(f.date_to) document.getElementById('chartTo').value = f.date_to;
+  if(f.employee_id && document.getElementById('chartEmployee')) document.getElementById('chartEmployee').value = f.employee_id;
+  if(f.project_id && document.getElementById('chartProject')) document.getElementById('chartProject').value = f.project_id;
+  if(f.status && document.getElementById('chartTimeEntryStatus')) document.getElementById('chartTimeEntryStatus').value = f.status;
+  if(f.status && document.getElementById('chartStatus')) document.getElementById('chartStatus').value = f.status;
+  if(f.status && document.getElementById('chartEditReqStatus')) document.getElementById('chartEditReqStatus').value = f.status;
+  if(f.payment_method) document.getElementById('chartPaymentMethod').value = f.payment_method;
+  if(f.role) document.getElementById('chartRole').value = f.role;
+}
+
+function onChartSourceChange(){
+  const source = document.getElementById('chartSource').value;
+  document.querySelectorAll('[data-chart-source-only]').forEach(el=>{
+    const allowed = el.dataset.chartSourceOnly.split(',');
+    el.style.display = allowed.includes(source) ? '' : 'none';
+  });
+  const groupSelect = document.getElementById('chartGroupBy');
+  const groups = CHART_GROUP_FIELDS[source] || [];
+  groupSelect.innerHTML = groups.map(g=>`<option value="${g.value}">${g.label}</option>`).join('');
+  onChartAggChange();
+}
+
+function onChartAggChange(){
+  const source = document.getElementById('chartSource').value;
+  const agg = document.getElementById('chartAgg').value;
+  const wrap = document.getElementById('chartFieldWrap');
+  if(agg==='count'){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const fields = KPI_NUMERIC_FIELDS[source] || [];
+  const fieldSelect = document.getElementById('chartField');
+  fieldSelect.innerHTML = fields.length
+    ? fields.map(f=>`<option value="${f.value}">${f.label}</option>`).join('')
+    : '<option value="">אין שדה מספרי למקור הזה — בחר "ספירה"</option>';
+}
+
+function collectChartConfig(){
+  const source = document.getElementById('chartSource').value;
+  const group_by = document.getElementById('chartGroupBy').value;
+  const aggregation = document.getElementById('chartAgg').value;
+  const field = aggregation==='count' ? undefined : (document.getElementById('chartField').value || undefined);
+  const filters = {};
+  const from = document.getElementById('chartFrom').value; if(from) filters.date_from = from;
+  const to = document.getElementById('chartTo').value; if(to) filters.date_to = to;
+  if(['time_entries','tasks','edit_requests'].includes(source)){
+    const emp = document.getElementById('chartEmployee').value; if(emp) filters.employee_id = emp;
+  }
+  if(['time_entries','tasks'].includes(source)){
+    const proj = document.getElementById('chartProject').value; if(proj) filters.project_id = proj;
+  }
+  if(source==='time_entries'){
+    const status = document.getElementById('chartTimeEntryStatus').value; if(status) filters.status = status;
+  }
+  if(source==='tasks'){
+    const status = document.getElementById('chartStatus').value; if(status) filters.status = status;
+  }
+  if(source==='edit_requests'){
+    const status = document.getElementById('chartEditReqStatus').value; if(status) filters.status = status;
+  }
+  if(source==='projects'){
+    const pm = document.getElementById('chartPaymentMethod').value; if(pm) filters.payment_method = pm;
+  }
+  if(source==='employees'){
+    const role = document.getElementById('chartRole').value; if(role) filters.role = role;
+  }
+  return { data_source: source, group_by, aggregation, field, filters };
+}
+
+async function previewChartWidget(){
+  const resultEl = document.getElementById('chartPreviewResult');
+  resultEl.textContent = 'מחשב...';
+  try{
+    const config = collectChartConfig();
+    const { data } = await apiCall('/dashboard-widgets/chart/preview', { method:'POST', body: JSON.stringify(config) });
+    resultEl.innerHTML = renderChartBars(config, data);
+  }catch(err){ resultEl.textContent = 'שגיאה: '+err.message; }
+}
+
+async function saveChartWidget(){
+  const title = document.getElementById('chartTitle').value.trim();
+  if(!title){ toast('צריך כותרת ל-widget'); return; }
+  try{
+    if(editingWidgetId){
+      await apiCall(`/dashboard-widgets/${editingWidgetId}`, { method:'PATCH', body: JSON.stringify({ title, config: collectChartConfig() }) });
+    } else {
+      await apiCall('/dashboard-widgets', { method:'POST', body: JSON.stringify({ type:'chart', title, config: collectChartConfig() }) });
     }
     closeModal();
     toast(editingWidgetId ? 'העדכון נשמר' : 'נוסף לדשבורד');
