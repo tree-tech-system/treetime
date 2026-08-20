@@ -2106,16 +2106,30 @@ function onWidgetWidthResizeStart(e){
   const direction = e.currentTarget.classList.contains('widget-resize-arrow-w-left') ? 'left' : 'right';
   const baseTranslate = currentTranslateX(el);
   const rowMates = direction === 'right' ? collectRowMates(el) : [];
-  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth, direction, baseTranslate, rowMates };
+  // Right-handle growth is capped so the pushed row never visually runs past the
+  // dashboard panel's own right edge (into whatever sits beside it, e.g. the nav
+  // sidebar) -- measured against the widgets container's padding-box, using whichever
+  // widget among {el, ...rowMates} currently sits furthest right (only preceding
+  // siblings can be further right than el itself in this RTL row).
+  let maxGrow = Infinity;
+  if(direction === 'right'){
+    const container = el.parentElement;
+    const containerRight = container.getBoundingClientRect().right - parseFloat(getComputedStyle(container).paddingRight || 0);
+    const rightmostEdge = Math.max(el.getBoundingClientRect().right, ...rowMates.map(m => m.el.getBoundingClientRect().right));
+    maxGrow = Math.max(0, containerRight - rightmostEdge);
+  }
+  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth, direction, baseTranslate, rowMates, maxGrow };
   document.addEventListener('mousemove', onWidgetWidthResizeMove);
   document.addEventListener('mouseup', onWidgetWidthResizeEnd);
 }
 function onWidgetWidthResizeMove(e){
   if(!resizingWidgetW) return;
-  const { el, direction, startX, startW, baseTranslate, rowMates } = resizingWidgetW;
+  const { el, direction, startX, startW, baseTranslate, rowMates, maxGrow } = resizingWidgetW;
   const dx = e.clientX - startX;
   const dir = direction === 'left' ? -1 : 1;
-  const w = Math.max(200, startW + dir*dx);
+  let w = startW + dir*dx;
+  if(direction === 'right') w = Math.min(w, startW + maxGrow);
+  w = Math.max(200, w);
   el.style.width = w+'px';
   el.style.flex = '0 0 auto';
   if(direction === 'right'){
