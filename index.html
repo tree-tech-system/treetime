@@ -1923,7 +1923,7 @@ function renderDashboardWidgetsSection(){
       <div class="panel-pad" style="display:flex; flex-wrap:wrap; gap:12px;">
         ${widgets.length
           ? widgets.map(w=>renderOneDashboardWidget(w,admin)).join('')
-          : `<div class="cell-muted">עדיין אין widgets בדשבורד.${admin?' לחץ "הוסף דשבורד" למעלה, או "שמור תצוגה כ-widget" בעמוד דיווחי עבודה / משימות.':''}</div>`}
+          : `<div class="cell-muted">עדיין אין widgets בדשבורד.${admin?' לחץ "הוסף דשבורד" למעלה.':''}</div>`}
       </div>
     </div>
   `;
@@ -2222,38 +2222,6 @@ function renderListWidgetRows(source, rows, selectedColumns){
   return `<table><thead><tr>${columns.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead><tbody>
     ${rows.map(row=>`<tr>${columns.map(c=>`<td>${c.render(row)}</td>`).join('')}</tr>`).join('')}
   </tbody></table>`;
-}
-
-let pendingListWidgetSource = null;
-let pendingListWidgetFilters = null;
-
-function openSaveListWidgetModal(source, filters){
-  pendingListWidgetSource = source;
-  pendingListWidgetFilters = filters;
-  openModal(`
-    <div class="modal-head"><h3>שמור תצוגה כ-widget</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
-    <div class="modal-body">
-      <div class="field"><label>כותרת ל-widget</label><input type="text" id="listWidgetTitle" placeholder="לדוגמה: שעות פתוחות החודש"></div>
-      <div class="hint">התצוגה תישמר עם הסינון הנוכחי שלה בדיוק כפי שהוא עכשיו, ותופיע בדשבורד הראשי.</div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn btn-primary" onclick="saveListWidget()">${ICON.check} שמור</button>
-      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
-    </div>
-  `);
-}
-
-async function saveListWidget(){
-  const title = document.getElementById('listWidgetTitle').value.trim();
-  if(!title){ toast('צריך כותרת ל-widget'); return; }
-  const cleanFilters = Object.fromEntries(Object.entries(pendingListWidgetFilters||{}).filter(([,v])=>v!==undefined && v!==''));
-  try{
-    await apiCall('/dashboard-widgets', { method:'POST', body: JSON.stringify({ type:'list', title, config: { source: pendingListWidgetSource, filters: cleanFilters } }) });
-    closeModal();
-    toast('נוסף לדשבורד הראשי');
-    await refreshData();
-    renderAll();
-  }catch(err){ toast('שגיאה: '+err.message); }
 }
 
 let editingWidgetId = null;
@@ -3661,7 +3629,6 @@ function renderReportsPage(){
         <input type="date" id="fFrom" value="${reportFilters.from}">
         <input type="date" id="fTo" value="${reportFilters.to}">
         <button class="btn btn-ghost btn-sm" onclick="clearFilters()">נקה סינון</button>
-        ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openSaveListWidgetModal('time_entries', {employee_id: reportFilters.freelancerId||undefined, project_id: reportFilters.clientId||undefined, date_from: reportFilters.from||undefined, date_to: reportFilters.to||undefined})">${ICON.plus} שמור תצוגה כ-widget</button>` : ''}
         <div style="margin-right:auto; align-self:center; display:flex; gap:16px;" class="cell-muted">
           <span>סה״כ זמן: <b style="color:var(--ink);">${fmtMinutes(totalMin)}</b></span>
           <span>סה״כ עלות: <b style="color:var(--ink);">${fmtCurrency(totalCost)}</b></span>
@@ -4730,7 +4697,6 @@ function renderTasksPage(){
         <input type="date" id="tfFilterFrom" value="${taskFilters.from}">
         <input type="date" id="tfFilterTo" value="${taskFilters.to}">
         <button class="btn btn-ghost btn-sm" onclick="clearTaskFilters()">נקה סינון</button>
-        ${admin ? `<button class="btn btn-ghost btn-sm" onclick="openSaveListWidgetModal('tasks', {employee_id: taskFilters.freelancerId||undefined, project_id: taskFilters.clientId||undefined, date_from: taskFilters.from||undefined, date_to: taskFilters.to||undefined})">${ICON.plus} שמור תצוגה כ-widget</button>` : ''}
       </div>
     </div>
 
