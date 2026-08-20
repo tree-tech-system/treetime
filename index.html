@@ -2045,42 +2045,87 @@ function wireDashboardWidgetInteractions(){
 
 // Press-and-hold either ↔ arrow, then drag to stretch the widget's width, with the
 // EDGE YOU GRABBED being the one that moves and the opposite edge staying visually
-// fixed -- the right handle grows/shrinks from the right (left edge pinned), the left
-// handle grows/shrinks from the left (right edge pinned).
+// fixed. Growing toward the left (the left handle) is naturally handled by plain
+// `width` -- flex already keeps the right edge fixed, and correctly reflows every
+// LATER sibling (further left) since that growth is real (the widget's actual layout
+// box gets wider on the left).
 //
-// In this RTL page, changing only `width` on a flex item already keeps its right edge
-// fixed in place (unaffected by the item's own width -- it's pinned by the cumulative
-// width of preceding siblings) and lets the left edge move -- exactly the left-handle
-// behavior we want, with no extra work. The right handle needs the opposite, which
-// isn't something plain `width` can do on its own in flex layout, so we counteract the
-// natural leftward growth with a matching rightward `translateX` -- transforms are a
-// paint-time-only visual offset that doesn't affect layout/flow, so it doesn't disturb
-// sibling widgets or the container's wrapping. baseTranslate carries forward any
-// transform already on the element (e.g. from an earlier right-handle drag in the same
-// session, before a full re-render clears it) so repeated drags accumulate correctly
-// instead of jumping back to zero each time.
+// Growing toward the right (the right handle) is the hard direction, because the
+// "growth" has to be faked with a `translateX` compensation (paint-only, doesn't touch
+// layout) to make the right edge move while flex insists on keeping it fixed -- and
+// that fakery creates TWO knock-on problems, not one:
+//   1. A PRECEDING sibling (to this widget's right, in this RTL row) never reflows
+//      just because a later item's width changed -- flex only ever reflows siblings
+//      that come AFTER an item in flow order. Without help it gets overlapped by the
+//      widget's new visual (transformed) right edge.
+//   2. A FOLLOWING sibling (to this widget's left) DOES naturally reflow, but based on
+//      the widget's real (untransformed) layout box -- which grew on its NATURAL side
+//      (right, canceled out by our transform), not its visual side. So it shifts left
+//      to make room for growth that, visually, never happened on its side -- opening a
+//      gap between it and the resized widget instead of an overlap.
+// Both problems have the same fix: every OTHER widget on the same row (both directions)
+// gets the identical translateX offset the resized widget gets. For a preceding
+// sibling this pushes it out of the way (problem 1); for a following sibling this
+// exactly cancels its unwanted natural reflow, since it was never really being grown
+// into (problem 2). collectRowMates walks both directions from the resized widget,
+// stopping at the row boundary (compares `top`, since a wrapped sibling on a different
+// row must not be touched).
+//
+// baseTranslate (per element) carries forward whatever transform it already has
+// (parsed back out of style.transform) so repeated right-handle drags in the same
+// session accumulate correctly instead of resetting to zero each time.
+//
+// This is a live-drag visual affordance only, same as the height/left-handle behavior:
+// only the resized widget's own width_px is persisted via PATCH. Every other widget's
+// own width/data never changes, so after any subsequent full re-render the row just
+// lays out fresh from widths, same as always. If there isn't enough room in the row
+// for a right-handle push, the pushed sibling(s) can visually run past the container
+// edge during the drag -- an accepted tradeoff (explicit product decision) over
+// letting widgets overlap.
 let resizingWidgetW = null;
+function currentTranslateX(el){
+  const m = /translateX\(([-\d.]+)px\)/.exec(el.style.transform || '');
+  return m ? parseFloat(m[1]) : 0;
+}
+function collectRowMates(el){
+  const mates = [];
+  const top = el.getBoundingClientRect().top;
+  const sameRow = (sib) => sib && sib.classList && sib.classList.contains('dashboard-widget') && Math.abs(sib.getBoundingClientRect().top - top) <= 2;
+  for(let sib = el.previousElementSibling; sameRow(sib); sib = sib.previousElementSibling){
+    mates.push({ el: sib, baseTranslate: currentTranslateX(sib) });
+  }
+  for(let sib = el.nextElementSibling; sameRow(sib); sib = sib.nextElementSibling){
+    mates.push({ el: sib, baseTranslate: currentTranslateX(sib) });
+  }
+  return mates;
+}
 function onWidgetWidthResizeStart(e){
   e.preventDefault();
   const el = e.target.closest('.dashboard-widget');
   if(!el) return;
   const direction = e.currentTarget.classList.contains('widget-resize-arrow-w-left') ? 'left' : 'right';
-  const existingTranslateMatch = /translateX\(([-\d.]+)px\)/.exec(el.style.transform || '');
-  const baseTranslate = existingTranslateMatch ? parseFloat(existingTranslateMatch[1]) : 0;
-  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth, direction, baseTranslate };
+  const baseTranslate = currentTranslateX(el);
+  const rowMates = direction === 'right' ? collectRowMates(el) : [];
+  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth, direction, baseTranslate, rowMates };
   document.addEventListener('mousemove', onWidgetWidthResizeMove);
   document.addEventListener('mouseup', onWidgetWidthResizeEnd);
 }
 function onWidgetWidthResizeMove(e){
   if(!resizingWidgetW) return;
-  const dx = e.clientX - resizingWidgetW.startX;
-  const dir = resizingWidgetW.direction === 'left' ? -1 : 1;
-  const w = Math.max(200, resizingWidgetW.startW + dir*dx);
-  resizingWidgetW.el.style.width = w+'px';
-  resizingWidgetW.el.style.flex = '0 0 auto';
-  if(resizingWidgetW.direction === 'right'){
-    const translate = resizingWidgetW.baseTranslate + (w - resizingWidgetW.startW);
-    resizingWidgetW.el.style.transform = translate ? `translateX(${translate}px)` : '';
+  const { el, direction, startX, startW, baseTranslate, rowMates } = resizingWidgetW;
+  const dx = e.clientX - startX;
+  const dir = direction === 'left' ? -1 : 1;
+  const w = Math.max(200, startW + dir*dx);
+  el.style.width = w+'px';
+  el.style.flex = '0 0 auto';
+  if(direction === 'right'){
+    const delta = w - startW;
+    const translate = baseTranslate + delta;
+    el.style.transform = translate ? `translateX(${translate}px)` : '';
+    rowMates.forEach(m => {
+      const mt = m.baseTranslate + delta;
+      m.el.style.transform = mt ? `translateX(${mt}px)` : '';
+    });
   }
   resizingWidgetW.width = Math.round(w);
 }
