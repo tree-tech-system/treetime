@@ -2043,17 +2043,31 @@ function wireDashboardWidgetInteractions(){
   });
 }
 
-// Press-and-hold either ↔ arrow, then drag to stretch the widget's width -- the right
-// handle grows toward the right when dragged right, the left handle grows toward the
-// left when dragged left, each independent of the page's RTL direction (explicit
-// per-handle direction instead of guessing from document direction).
+// Press-and-hold either ↔ arrow, then drag to stretch the widget's width, with the
+// EDGE YOU GRABBED being the one that moves and the opposite edge staying visually
+// fixed -- the right handle grows/shrinks from the right (left edge pinned), the left
+// handle grows/shrinks from the left (right edge pinned).
+//
+// In this RTL page, changing only `width` on a flex item already keeps its right edge
+// fixed in place (unaffected by the item's own width -- it's pinned by the cumulative
+// width of preceding siblings) and lets the left edge move -- exactly the left-handle
+// behavior we want, with no extra work. The right handle needs the opposite, which
+// isn't something plain `width` can do on its own in flex layout, so we counteract the
+// natural leftward growth with a matching rightward `translateX` -- transforms are a
+// paint-time-only visual offset that doesn't affect layout/flow, so it doesn't disturb
+// sibling widgets or the container's wrapping. baseTranslate carries forward any
+// transform already on the element (e.g. from an earlier right-handle drag in the same
+// session, before a full re-render clears it) so repeated drags accumulate correctly
+// instead of jumping back to zero each time.
 let resizingWidgetW = null;
 function onWidgetWidthResizeStart(e){
   e.preventDefault();
   const el = e.target.closest('.dashboard-widget');
   if(!el) return;
   const direction = e.currentTarget.classList.contains('widget-resize-arrow-w-left') ? 'left' : 'right';
-  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth, direction };
+  const existingTranslateMatch = /translateX\(([-\d.]+)px\)/.exec(el.style.transform || '');
+  const baseTranslate = existingTranslateMatch ? parseFloat(existingTranslateMatch[1]) : 0;
+  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth, direction, baseTranslate };
   document.addEventListener('mousemove', onWidgetWidthResizeMove);
   document.addEventListener('mouseup', onWidgetWidthResizeEnd);
 }
@@ -2064,6 +2078,10 @@ function onWidgetWidthResizeMove(e){
   const w = Math.max(200, resizingWidgetW.startW + dir*dx);
   resizingWidgetW.el.style.width = w+'px';
   resizingWidgetW.el.style.flex = '0 0 auto';
+  if(resizingWidgetW.direction === 'right'){
+    const translate = resizingWidgetW.baseTranslate + (w - resizingWidgetW.startW);
+    resizingWidgetW.el.style.transform = translate ? `translateX(${translate}px)` : '';
+  }
   resizingWidgetW.width = Math.round(w);
 }
 async function onWidgetWidthResizeEnd(){
