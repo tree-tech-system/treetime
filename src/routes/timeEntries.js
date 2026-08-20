@@ -3,6 +3,8 @@ const { body, validationResult } = require('express-validator');
 const pool = require('../db/pool');
 const { authenticate, requireScope } = require('../middleware/auth');
 const { dispatchEvent } = require('../lib/webhookDispatcher');
+const { notifyAdmins } = require('../lib/notify');
+const { sendAdminEmails } = require('../lib/mailer');
 
 const router = express.Router();
 router.use(authenticate);
@@ -36,6 +38,37 @@ async function rateFor(employeeId) {
 function computeCost(startedAt, endedAt, rate, pausedSeconds = 0) {
   const hours = Math.max(0, (new Date(endedAt) - new Date(startedAt)) / 1000 - (pausedSeconds || 0)) / 3600;
   return Math.round(hours * rate * 100) / 100;
+}
+
+// Admin-configured "alert me about long entries" check, run whenever a time entry is
+// finalized with a known duration (timer stopped, or a completed entry logged
+// directly). long_entry_threshold_minutes is NULL until an admin actively sets one --
+// that's the real on/off switch, not the notify/email booleans (which default TRUE
+// FALSE the same way edit_request does, but are meaningless while no threshold is
+// set). Always called fire-and-forget (`.catch(()=>{})` at the call site) so a failure
+// here can never affect the timer action itself.
+async function maybeNotifyLongEntry(entry) {
+  if (!entry || !entry.ended_at) return;
+  const netMinutes = Math.max(0, (new Date(entry.ended_at) - new Date(entry.started_at)) / 1000 - (entry.paused_seconds || 0)) / 60;
+
+  const { rows } = await pool.query(
+    'SELECT long_entry_threshold_minutes, long_entry_notify_admin, long_entry_email_admin FROM company_notification_settings WHERE company_id = $1',
+    [entry.company_id]
+  );
+  const s = rows[0];
+  if (!s || !s.long_entry_threshold_minutes || netMinutes < s.long_entry_threshold_minutes) return;
+  if (s.long_entry_notify_admin === false && !s.long_entry_email_admin) return;
+
+  const emp = await pool.query('SELECT full_name FROM employees WHERE id = $1', [entry.employee_id]);
+  const empName = emp.rows[0]?.full_name || 'עובד';
+  const summary = `${empName}: דיווח של ${Math.round(netMinutes)} דקות (הסף שהוגדר: ${s.long_entry_threshold_minutes} דקות)`;
+
+  if (s.long_entry_notify_admin !== false) {
+    notifyAdmins(entry.company_id, 'long_entry', 'דיווח עבודה ארוך', summary, 'reports');
+  }
+  if (s.long_entry_email_admin) {
+    sendAdminEmails(entry.company_id, 'דיווח עבודה ארוך', summary, 'long_entry').catch(() => {});
+  }
 }
 
 // Picks the entry a pause/resume/stop action applies to among an employee's currently
@@ -151,6 +184,7 @@ router.post('/stop', requireScope('write'), async (req, res) => {
     [picked.id, rate, cost]
   );
   dispatchEvent('time_entry.stopped', rows[0]);
+  maybeNotifyLongEntry(rows[0]).catch(() => {});
   res.json(rows[0]);
 });
 
@@ -329,6 +363,7 @@ router.post(
       [employeeId, project_id || null, description || null, started_at, ended_at, req.auth.type === 'apikey' ? `integration:${req.auth.name}` : 'web', companyIdOf(req), rate, cost]
     );
     dispatchEvent('time_entry.created', rows[0]);
+    maybeNotifyLongEntry(rows[0]).catch(() => {});
     res.status(201).json(rows[0]);
   }
 );

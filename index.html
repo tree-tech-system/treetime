@@ -682,7 +682,8 @@ let state = {
   editRequests: [], supportTickets: [], clientFields: [], intakeLinks: [],
   employeeFields: [], employeeIntakeLinks: [], notifications: [], tasks: [], dashboardWidgets: [], apiKeys: [],
   notificationSettings: { quota80_notify_admin:true, quota80_notify_employee:false, edit_request_notify_admin:true, support_reply_notify_admin:true, support_reply_notify_employee:false,
-    quota80_email_admin:false, quota80_email_employee:false, edit_request_email_admin:false, support_reply_email_admin:false, support_reply_email_employee:false },
+    quota80_email_admin:false, quota80_email_employee:false, edit_request_email_admin:false, support_reply_email_admin:false, support_reply_email_employee:false,
+    long_entry_threshold_minutes:null, long_entry_notify_admin:true, long_entry_email_admin:false },
   currentUserId: null, currentRole: 'freelancer',
   settings: { autoCloseEnabled:false, autoCloseMode:'hours', autoCloseAfterHours:8, autoCloseTime:'23:00' },
   timerSettings: { max_concurrent_timers: 3 },
@@ -5239,9 +5240,24 @@ function renderNotificationSettingsPanel(){
         ${row('התראה על ניצול של 80% מהחבילה', 'quota80_notify_admin', 'quota80_notify_employee', 'quota80_email_admin', 'quota80_email_employee')}
         ${row('התראה על בקשה חדשה לתיקון דיווח', 'edit_request_notify_admin', null, 'edit_request_email_admin', null)}
         ${row('התראה על הודעות ותגובות חדשות בתמיכה מסופר האדמין של טריטק', 'support_reply_notify_admin', 'support_reply_notify_employee', 'support_reply_email_admin', 'support_reply_email_employee')}
+        <tr>
+          <td style="font-weight:600;">
+            <div>התראה על דיווח עבודה ארוך</div>
+            <div style="font-weight:400; font-size:12px; margin-top:6px; display:flex; align-items:center; gap:6px;">
+              <span>מעל</span>
+              <input type="number" id="n_long_entry_threshold_minutes" min="1" step="1" placeholder="לדוגמה: 120" value="${n.long_entry_threshold_minutes ?? ''}" style="width:90px;">
+              <span>דקות בדיווח בודד</span>
+            </div>
+          </td>
+          <td style="text-align:center;">${cb('long_entry_notify_admin')}</td>
+          <td style="text-align:center;"><span class="cell-muted" style="font-size:12px;">לא רלוונטי — התראה זו למנהל בלבד</span></td>
+          <td style="text-align:center;">${cb('long_entry_email_admin')}</td>
+          <td style="text-align:center;"></td>
+        </tr>
       </tbody>
     </table>
-    <div class="hint" style="margin-top:10px;">איפוס סיסמה, אישור חשבון, והודעות אבטחה נשלחים במייל תמיד ואינם ניתנים לכיבוי כאן.</div>
+    <div class="hint" style="margin-top:10px;">התראת דיווח ארוך פעילה רק אחרי שנקבע מספר דקות בשדה שלה — כל עוד השדה ריק, ההתראה כבויה גם אם הסימונים מסומנים.</div>
+    <div class="hint" style="margin-top:4px;">איפוס סיסמה, אישור חשבון, והודעות אבטחה נשלחים במייל תמיד ואינם ניתנים לכיבוי כאן.</div>
     <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
       <button class="btn btn-primary" onclick="saveNotificationSettings()">${ICON.check} שמור הרשאות התראות</button>
     </div>
@@ -5260,6 +5276,9 @@ async function saveNotificationSettings(){
     edit_request_email_admin: document.getElementById('n_edit_request_email_admin').checked,
     support_reply_email_admin: document.getElementById('n_support_reply_email_admin').checked,
     support_reply_email_employee: document.getElementById('n_support_reply_email_employee').checked,
+    long_entry_notify_admin: document.getElementById('n_long_entry_notify_admin').checked,
+    long_entry_email_admin: document.getElementById('n_long_entry_email_admin').checked,
+    long_entry_threshold_minutes: document.getElementById('n_long_entry_threshold_minutes').value ? Number(document.getElementById('n_long_entry_threshold_minutes').value) : null,
   };
   try{
     await apiCall('/notification-settings', { method:'PATCH', body: JSON.stringify(body) });
