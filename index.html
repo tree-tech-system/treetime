@@ -321,7 +321,8 @@
     font-size:12px; line-height:1; opacity:.55; box-shadow:var(--shadow);
   }
   .widget-resize-arrow:hover{ opacity:1; border-color:var(--green-bright); color:var(--green-bright); }
-  .widget-resize-arrow-w{ right:-8px; top:50%; margin-top:-10px; cursor:ew-resize; }
+  .widget-resize-arrow-w-right{ right:-8px; top:50%; margin-top:-10px; cursor:ew-resize; }
+  .widget-resize-arrow-w-left{ left:-8px; top:50%; margin-top:-10px; cursor:ew-resize; }
   .widget-resize-arrow-h{ bottom:-8px; left:50%; margin-left:-10px; cursor:ns-resize; }
 
   .checkbox-list{
@@ -1945,10 +1946,12 @@ function openEditChartWidgetModal(id){
 
 function renderOneDashboardWidget(w, admin){
   const deleteButton = admin ? `<button class="icon-btn" title="הסר מהדשבורד" onclick="removeDashboardWidget(${w.id})">${ICON.trash}</button>` : '';
-  // Press-and-hold arrow handles: one stretches width, one stretches height. No preset sizes anymore.
+  // Press-and-hold arrow handles: 3 independent directions, each stretching from its
+  // own edge (right/left/down). No preset sizes anymore.
   const resizeHandles = admin ? `
-    <div class="widget-resize-arrow widget-resize-arrow-w" title="לחץ והחזק כדי למתוח לרוחב">↔</div>
-    <div class="widget-resize-arrow widget-resize-arrow-h" title="לחץ והחזק כדי למתוח לגובה">↕</div>
+    <div class="widget-resize-arrow widget-resize-arrow-w-right" title="לחץ והחזק כדי למתוח ימינה">↔</div>
+    <div class="widget-resize-arrow widget-resize-arrow-w-left" title="לחץ והחזק כדי למתוח שמאלה">↔</div>
+    <div class="widget-resize-arrow widget-resize-arrow-h" title="לחץ והחזק כדי למתוח למטה">↕</div>
   ` : '';
   const draggableAttr = admin ? `data-draggable="1"` : '';
 
@@ -2023,7 +2026,7 @@ function renderChartBars(config, data){
 }
 
 function wireDashboardWidgetInteractions(){
-  document.querySelectorAll('.widget-resize-arrow-w').forEach(handle=>{
+  document.querySelectorAll('.widget-resize-arrow-w-right, .widget-resize-arrow-w-left').forEach(handle=>{
     if(handle.dataset.wired) return;
     handle.dataset.wired = '1';
     handle.addEventListener('mousedown', onWidgetWidthResizeStart);
@@ -2040,20 +2043,24 @@ function wireDashboardWidgetInteractions(){
   });
 }
 
-// Press-and-hold the ↔ arrow, then drag left/right to stretch the widget's width.
+// Press-and-hold either ↔ arrow, then drag to stretch the widget's width -- the right
+// handle grows toward the right when dragged right, the left handle grows toward the
+// left when dragged left, each independent of the page's RTL direction (explicit
+// per-handle direction instead of guessing from document direction).
 let resizingWidgetW = null;
 function onWidgetWidthResizeStart(e){
   e.preventDefault();
   const el = e.target.closest('.dashboard-widget');
   if(!el) return;
-  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth };
+  const direction = e.currentTarget.classList.contains('widget-resize-arrow-w-left') ? 'left' : 'right';
+  resizingWidgetW = { el, id: Number(el.dataset.widgetId), startX: e.clientX, startW: el.offsetWidth, direction };
   document.addEventListener('mousemove', onWidgetWidthResizeMove);
   document.addEventListener('mouseup', onWidgetWidthResizeEnd);
 }
 function onWidgetWidthResizeMove(e){
   if(!resizingWidgetW) return;
   const dx = e.clientX - resizingWidgetW.startX;
-  const dir = document.documentElement.dir === 'rtl' || getComputedStyle(document.body).direction === 'rtl' ? -1 : 1;
+  const dir = resizingWidgetW.direction === 'left' ? -1 : 1;
   const w = Math.max(200, resizingWidgetW.startW + dir*dx);
   resizingWidgetW.el.style.width = w+'px';
   resizingWidgetW.el.style.flex = '0 0 auto';
