@@ -3962,14 +3962,9 @@ function renderEditRequestsPage(){
             const entryCell = e
               ? `<div style="font-weight:600;">${clientDisplayName(c)}</div><div class="cell-muted" style="font-size:12px;">${fmtDateHe(e.date)} · ${e.start}–${e.end}</div>`
               : `<span class="cell-muted">הדיווח נמחק</span>`;
-            const actions = admin
-              ? (r.status==='pending' && e
-                  ? `<div style="display:flex; gap:6px;">
-                      <button class="btn btn-sm btn-primary" onclick="approveEditRequest('${r.id}')">${ICON.check} אשר וערוך</button>
-                      <button class="btn btn-sm btn-danger-ghost" onclick="rejectEditRequest('${r.id}')">${ICON.close} דחה</button>
-                    </div>`
-                  : (r.adminNote ? `<div class="cell-muted" style="font-size:12px;">הערה: ${r.adminNote}</div>` : ''))
-              : (r.adminNote ? `<div class="cell-muted" style="font-size:12px;">הערת מנהל: ${r.adminNote}</div>` : (r.status==='pending' ? `<span class="cell-muted" style="font-size:12px;">ממתין לטיפול מנהל</span>` : ''));
+            const actions = (admin && r.status==='pending')
+              ? `<button class="btn btn-sm btn-primary" onclick="openEditRequestDetail('${r.id}')">${ICON.request} טיפול בבקשה</button>`
+              : `<button class="btn btn-sm btn-ghost" onclick="openEditRequestDetail('${r.id}')">${ICON.request} צפייה</button>`;
             return `<tr>
               <td>${statusPill}</td>
               ${admin?`<td>${f?.name||'—'}</td>`:''}
@@ -3986,34 +3981,130 @@ function renderEditRequestsPage(){
   return html;
 }
 
-async function approveEditRequest(requestId){
+// Single popup for one edit request: view context (reason, original entry, status),
+// and -- when it's still pending and the admin is looking at it -- edit the underlying
+// entry's fields directly and approve or reject right there. Replaces the old flow
+// where "approve" immediately flipped the request's status and then navigated away to
+// the Reports page to open a separate, disconnected edit-entry modal.
+function openEditRequestDetail(requestId){
   const r = state.editRequests.find(x=>x.id===requestId);
   if(!r) return;
+  const e = state.entries.find(x=>x.id===r.entryId);
+  const f = getFreelancer(r.freelancerId);
+  const c = e ? getClient(e.clientId) : null;
+  const admin = isAdmin();
+  const editable = admin && r.status==='pending' && !!e;
+  const showAdminNoteInput = admin && r.status==='pending';
+
+  const statusPill = r.status==='pending' ? `<span class="pill pill-amber">${ICON.alert} ממתין</span>`
+    : r.status==='approved' ? `<span class="pill pill-green">${ICON.check} אושר</span>`
+    : `<span class="pill pill-red">${ICON.close} נדחה</span>`;
+
+  const entryBlock = !e
+    ? `<div class="hint">הדיווח המקורי נמחק — לא ניתן לערוך אותו.</div>`
+    : editable
+      ? `
+        <div class="field">
+          <label>לקוח</label>
+          <select id="erqClient">${state.clients.map(cl=>`<option value="${cl.id}" ${e.clientId===cl.id?'selected':''}>${clientDisplayName(cl)}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>תאריך</label><input type="date" id="erqDate" value="${e.date}"></div>
+        <div class="field-row">
+          <div class="field"><label>שעת התחלה</label><input type="time" id="erqStart" value="${e.start}" oninput="updateEditRequestDuration()"></div>
+          <div class="field"><label>שעת סיום</label><input type="time" id="erqEnd" value="${e.end}" oninput="updateEditRequestDuration()"></div>
+        </div>
+        <div class="field"><label>משך זמן (מחושב אוטומטית)</label><input type="text" id="erqDuration" value="${fmtMinutes(minutesBetween(e.start,e.end))}" disabled style="background:#F6F4EC;color:var(--ink); font-weight:700;"></div>
+        <div class="field">
+          <label>תיאור</label>
+          <textarea id="erqDesc" placeholder="מה בוצע? (חובה למלא לפחות 10 תווים)" oninput="updateEditRequestDescCounter()">${e.description||''}</textarea>
+          <div class="hint" id="erqDescCounter">0/10 תווים לפחות</div>
+        </div>
+      `
+      : `
+        <div class="panel-pad" style="background:#FCFBF7; border:1px solid var(--border); border-radius:10px; padding:12px 14px;">
+          <div style="font-weight:700; font-size:13.5px;">${clientDisplayName(c)}</div>
+          <div class="cell-muted" style="font-size:12.5px; margin-top:2px;">${fmtDateHe(e.date)} · ${e.start}–${e.end} (${fmtMinutes(e.minutes)})</div>
+          ${e.description?`<div class="cell-muted" style="font-size:12.5px; margin-top:6px; line-height:1.5;">"${e.description}"</div>`:''}
+        </div>
+      `;
+
+  const footActions = editable
+    ? `
+      <button class="btn btn-primary" onclick="approveEditRequestFromDetail('${r.id}')">${ICON.check} אשר ושמור עריכה</button>
+      <button class="btn btn-danger-ghost" onclick="rejectEditRequestFromDetail('${r.id}')">${ICON.close} דחה בקשה</button>
+    `
+    : (admin && r.status==='pending' && !e ? `<button class="btn btn-danger-ghost" onclick="rejectEditRequestFromDetail('${r.id}')">${ICON.close} דחה בקשה</button>` : '');
+
+  openModal(`
+    <div class="modal-head"><h3>בקשת עריכה — ${f?.name||'—'}</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
+    <div class="modal-body">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+        ${statusPill}
+        <span class="cell-muted" style="font-size:12px;">הוגשה ${fmtDateHe(r.requestedAt.slice(0,10))}</span>
+      </div>
+      <div class="field">
+        <label>סיבת הבקשה</label>
+        <div class="panel-pad" style="background:#FCFBF7; border:1px solid var(--border); border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.6;">${r.reason}</div>
+      </div>
+      ${r.status!=='pending' && r.adminNote ? `<div class="hint" style="margin-bottom:10px;">הערת מנהל: ${r.adminNote}</div>` : ''}
+      ${entryBlock}
+      ${showAdminNoteInput ? `<div class="field"><label>הערה לעובד (אופציונלי)</label><textarea id="erqAdminNote" placeholder="תוצג לעובד יחד עם ההחלטה"></textarea></div>` : ''}
+    </div>
+    <div class="modal-foot">
+      ${footActions}
+      <button class="btn btn-ghost" onclick="closeModal()">סגור</button>
+    </div>
+  `);
+  if(editable) updateEditRequestDescCounter();
+}
+
+function updateEditRequestDuration(){
+  const start = document.getElementById('erqStart').value;
+  const end = document.getElementById('erqEnd').value;
+  const durField = document.getElementById('erqDuration');
+  if(!start || !end || !durField) return;
+  durField.value = fmtMinutes(minutesBetween(start,end));
+}
+
+function updateEditRequestDescCounter(){
+  const desc = document.getElementById('erqDesc');
+  const counter = document.getElementById('erqDescCounter');
+  if(!desc || !counter) return;
+  const len = desc.value.trim().length;
+  const ok = len>=10;
+  counter.textContent = ok ? `${len} תווים ✓` : `${len}/10 תווים לפחות`;
+  counter.style.color = ok ? 'var(--green)' : 'var(--red)';
+}
+
+async function approveEditRequestFromDetail(requestId){
+  const r = state.editRequests.find(x=>x.id===requestId);
+  if(!r) return;
+  const clientId = document.getElementById('erqClient').value;
+  const date = document.getElementById('erqDate').value;
+  const start = document.getElementById('erqStart').value;
+  const end = document.getElementById('erqEnd').value;
+  const description = document.getElementById('erqDesc').value.trim();
+  if(!date || !start || !end){ toast('יש למלא תאריך ושעות'); return; }
+  if(description.length < 10){
+    toast('יש למלא תיאור דיווח עבודה של לפחות 10 תווים');
+    updateEditRequestDescCounter();
+    return;
+  }
+  const admin_note = document.getElementById('erqAdminNote')?.value.trim() || undefined;
+  const started_at = new Date(`${date}T${start}:00`).toISOString();
+  const ended_at = new Date(`${date}T${end}:00`).toISOString();
   try{
-    await apiCall(`/edit-requests/${requestId}`, { method:'PATCH', body: JSON.stringify({ status:'approved' }) });
-    toast('הבקשה אושרה — ניתן לערוך כעת את הדיווח');
+    await apiCall(`/time-entries/${r.entryId}`, { method:'PATCH', body: JSON.stringify({ project_id: clientId?Number(clientId):null, description, started_at, ended_at }) });
+    await apiCall(`/edit-requests/${requestId}`, { method:'PATCH', body: JSON.stringify({ status:'approved', admin_note }) });
+    closeModal();
+    toast('הבקשה אושרה והדיווח עודכן');
     await refreshData();
-    activePage = 'reports';
     renderAll();
-    openEntryForm(r.entryId);
   }catch(err){ toast('שגיאה: '+err.message); }
 }
 
-function rejectEditRequest(requestId){
-  openModal(`
-    <div class="modal-head"><h3>דחיית בקשת עריכה</h3><button class="modal-close" onclick="closeModal()">${ICON.close}</button></div>
-    <div class="modal-body">
-      <div class="field"><label>הערה לעובד (אופציונלי)</label><textarea id="rejectNote" placeholder="לדוגמה: הדיווח המקורי נבדק ונמצא תקין"></textarea></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn btn-danger-ghost" onclick="confirmRejectRequest('${requestId}')">${ICON.close} דחה בקשה</button>
-      <button class="btn btn-ghost" onclick="closeModal()">ביטול</button>
-    </div>
-  `);
-}
-
-async function confirmRejectRequest(requestId){
-  const admin_note = document.getElementById('rejectNote').value.trim();
+async function rejectEditRequestFromDetail(requestId){
+  const admin_note = document.getElementById('erqAdminNote')?.value.trim() || '';
   try{
     await apiCall(`/edit-requests/${requestId}`, { method:'PATCH', body: JSON.stringify({ status:'rejected', admin_note }) });
     closeModal();
@@ -5033,6 +5124,7 @@ function renderSettingsCategoryBody(catId){
     `;
   }
   if(catId==='autoClose'){
+    const n = state.notificationSettings;
     return `
       <div class="sub" style="margin-bottom:12px;">עבור שעונים שנשארו פתוחים כי שכחו לכבות אותם</div>
       <div class="field">
@@ -5080,6 +5172,33 @@ function renderSettingsCategoryBody(catId){
           <div class="hint">ניסיון לפתוח שעון נוסף מעבר למכסה ייחסם עד שאחד השעונים הפתוחים של אותו עובד ייסגר. ברירת המחדל היא 3.</div>
         </div>
         <button class="btn btn-primary" onclick="saveTimerLimitSettings()">${ICON.check} שמור</button>
+      </div>
+
+      <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
+        <div class="sub" style="margin-bottom:12px;">התראה למנהל כשדיווח עבודה בודד ארוך במיוחד</div>
+        <div class="field">
+          <label>האם להפעיל התראה על דיווח עבודה ארוך?</label>
+          <select id="sLongEntryEnabled" onchange="toggleLongEntryFields()">
+            <option value="false" ${!n.long_entry_threshold_minutes?'selected':''}>לא</option>
+            <option value="true" ${n.long_entry_threshold_minutes?'selected':''}>כן</option>
+          </select>
+        </div>
+        <div id="longEntryFieldsWrap" style="display:${n.long_entry_threshold_minutes?'block':'none'};">
+          <div class="field">
+            <label>מעל כמה דקות בדיווח בודד להתריע</label>
+            <input type="number" min="1" step="1" id="sLongEntryThreshold" value="${n.long_entry_threshold_minutes||''}" placeholder="לדוגמה: 120">
+            <div class="hint">לדוגמה: 120 — כל דיווח עבודה בודד ששווה או עולה על 120 דקות יקפיץ התראה למנהל.</div>
+          </div>
+          <div style="display:flex; gap:18px; margin:4px 0 10px;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer;">
+              <input type="checkbox" id="sLongEntryNotifyAdmin" ${n.long_entry_notify_admin?'checked':''}> התראה בפעמון באפליקציה
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer;">
+              <input type="checkbox" id="sLongEntryEmailAdmin" ${n.long_entry_email_admin?'checked':''}> גם במייל
+            </label>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveLongEntrySettings()">${ICON.check} שמור</button>
       </div>
     `;
   }
@@ -5240,23 +5359,9 @@ function renderNotificationSettingsPanel(){
         ${row('התראה על ניצול של 80% מהחבילה', 'quota80_notify_admin', 'quota80_notify_employee', 'quota80_email_admin', 'quota80_email_employee')}
         ${row('התראה על בקשה חדשה לתיקון דיווח', 'edit_request_notify_admin', null, 'edit_request_email_admin', null)}
         ${row('התראה על הודעות ותגובות חדשות בתמיכה מסופר האדמין של טריטק', 'support_reply_notify_admin', 'support_reply_notify_employee', 'support_reply_email_admin', 'support_reply_email_employee')}
-        <tr>
-          <td style="font-weight:600;">
-            <div>התראה על דיווח עבודה ארוך</div>
-            <div style="font-weight:400; font-size:12px; margin-top:6px; display:flex; align-items:center; gap:6px;">
-              <span>מעל</span>
-              <input type="number" id="n_long_entry_threshold_minutes" min="1" step="1" placeholder="לדוגמה: 120" value="${n.long_entry_threshold_minutes ?? ''}" style="width:90px;">
-              <span>דקות בדיווח בודד</span>
-            </div>
-          </td>
-          <td style="text-align:center;">${cb('long_entry_notify_admin')}</td>
-          <td style="text-align:center;"><span class="cell-muted" style="font-size:12px;">לא רלוונטי — התראה זו למנהל בלבד</span></td>
-          <td style="text-align:center;">${cb('long_entry_email_admin')}</td>
-          <td style="text-align:center;"></td>
-        </tr>
       </tbody>
     </table>
-    <div class="hint" style="margin-top:10px;">התראת דיווח ארוך פעילה רק אחרי שנקבע מספר דקות בשדה שלה — כל עוד השדה ריק, ההתראה כבויה גם אם הסימונים מסומנים.</div>
+    <div class="hint" style="margin-top:10px;">התראה על דיווח עבודה ארוך עברה להגדרות → הגדרות שעונים.</div>
     <div class="hint" style="margin-top:4px;">איפוס סיסמה, אישור חשבון, והודעות אבטחה נשלחים במייל תמיד ואינם ניתנים לכיבוי כאן.</div>
     <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
       <button class="btn btn-primary" onclick="saveNotificationSettings()">${ICON.check} שמור הרשאות התראות</button>
@@ -5266,6 +5371,12 @@ function renderNotificationSettingsPanel(){
 
 async function saveNotificationSettings(){
   const body = {
+    // Spread the last-loaded settings first so fields owned by other panels (the
+    // long-entry alert, under הגדרות שעונים) are preserved as-is -- this panel only
+    // has inputs for the fields explicitly overridden below, and the backend PATCH
+    // replaces the whole row, so anything not sent would otherwise revert to its
+    // DEFAULTS.
+    ...state.notificationSettings,
     quota80_notify_admin: document.getElementById('n_quota80_notify_admin').checked,
     quota80_notify_employee: document.getElementById('n_quota80_notify_employee').checked,
     edit_request_notify_admin: document.getElementById('n_edit_request_notify_admin').checked,
@@ -5276,9 +5387,6 @@ async function saveNotificationSettings(){
     edit_request_email_admin: document.getElementById('n_edit_request_email_admin').checked,
     support_reply_email_admin: document.getElementById('n_support_reply_email_admin').checked,
     support_reply_email_employee: document.getElementById('n_support_reply_email_employee').checked,
-    long_entry_notify_admin: document.getElementById('n_long_entry_notify_admin').checked,
-    long_entry_email_admin: document.getElementById('n_long_entry_email_admin').checked,
-    long_entry_threshold_minutes: document.getElementById('n_long_entry_threshold_minutes').value ? Number(document.getElementById('n_long_entry_threshold_minutes').value) : null,
   };
   try{
     await apiCall('/notification-settings', { method:'PATCH', body: JSON.stringify(body) });
@@ -5319,6 +5427,38 @@ async function saveTimerLimitSettings(){
   }
   try{
     state.timerSettings = await apiCall('/timer-settings', { method:'PATCH', body: JSON.stringify({ max_concurrent_timers }) });
+    toast('ההגדרה נשמרה בהצלחה');
+    renderAll();
+  }catch(err){ toast('שגיאה: '+err.message); }
+}
+
+function toggleLongEntryFields(){
+  const enabled = document.getElementById('sLongEntryEnabled').value === 'true';
+  document.getElementById('longEntryFieldsWrap').style.display = enabled ? 'block' : 'none';
+}
+
+async function saveLongEntrySettings(){
+  const enabled = document.getElementById('sLongEntryEnabled').value === 'true';
+  let long_entry_threshold_minutes = null;
+  if(enabled){
+    long_entry_threshold_minutes = Number(document.getElementById('sLongEntryThreshold').value);
+    if(!long_entry_threshold_minutes || long_entry_threshold_minutes < 1){
+      toast('יש להזין מספר דקות תקין (1 ומעלה)');
+      return;
+    }
+  }
+  const body = {
+    // Spread the last-loaded settings first -- this panel only has inputs for the
+    // long-entry fields, so quota80/edit_request/support_reply must be preserved
+    // as-is rather than reverting to DEFAULTS on save (same reasoning as
+    // saveNotificationSettings() above, mirrored for this panel's own fields).
+    ...state.notificationSettings,
+    long_entry_threshold_minutes,
+    long_entry_notify_admin: enabled ? document.getElementById('sLongEntryNotifyAdmin').checked : state.notificationSettings.long_entry_notify_admin,
+    long_entry_email_admin: enabled ? document.getElementById('sLongEntryEmailAdmin').checked : state.notificationSettings.long_entry_email_admin,
+  };
+  try{
+    state.notificationSettings = await apiCall('/notification-settings', { method:'PATCH', body: JSON.stringify(body) });
     toast('ההגדרה נשמרה בהצלחה');
     renderAll();
   }catch(err){ toast('שגיאה: '+err.message); }
